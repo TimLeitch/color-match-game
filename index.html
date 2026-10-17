@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f7f5ee" />
+    <meta
+      name="description"
+      content="Keep the color loop moving in this dumpster sorting game."
+    />
+    <title>Color Magic | Kaotic Gaming</title>
+    <script>
+      const assetRoot = window.KG_BOOT ? `/play/${window.KG_BOOT.game}/` : "./";
+      document.write(`<link rel="stylesheet" href="${assetRoot}yard.css">`);
+      document.write(`<script src="${assetRoot}game.js" defer><\/script>`);
+      if (window.KG_BOOT) {
+        document.addEventListener("DOMContentLoaded", () => {
+          document.querySelector(".wordmark").href = "/";
+        });
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="topbar">
+        <a class="wordmark" href="./" aria-label="Kaotic Gaming home"
+          ><span class="wordmark-mark" aria-hidden="true">K</span> kaotic
+          gaming</a
+        >
+        <div class="topbar-note">
+          <span class="live-dot" aria-hidden="true"></span> COLOR SORTING YARD
+        </div>
+      </header>
+      <section class="game" aria-labelledby="game-title">
+        <div class="intro">
+          <p class="eyebrow">COLOR MAGIC / SHIFT 01</p>
+          <div class="title-row">
+            <div>
+              <h1 id="game-title">Keep it <span>moving.</span></h1>
+              <p class="intro-copy">
+                Release a stack. Let the loop find its home.
+              </p>
+            </div>
+            <button
+              class="reset-button"
+              id="reset-button"
+              type="button"
+              aria-label="Start a new load"
+              title="Start a new load"
+            >
+              ↻
+            </button>
+          </div>
+        </div>
+        <div class="scoreboard" aria-label="Game statistics">
+          <div class="stat">
+            <span class="stat-label">LEVEL</span
+            ><strong id="level-number">01</strong
+            ><span class="stat-unit" id="level-shape">OVAL</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true"></div>
+          <div class="stat">
+            <span class="stat-label">SORTED</span
+            ><strong id="sorted-count">00</strong
+            ><span class="stat-unit" id="sorted-total">/ 20</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true"></div>
+          <div class="stat">
+            <span class="stat-label">TIME LEFT</span
+            ><strong id="race-clock">60</strong
+            ><span class="stat-unit">SEC</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true"></div>
+          <div class="stat" id="track-stat">
+            <span class="stat-label">ON TRACK</span
+            ><strong id="track-count">00</strong
+            ><span class="stat-unit" id="track-cap">/ 80</span>
+          </div>
+          <div class="stat-divider" aria-hidden="true"></div>
+          <div class="stat">
+            <span class="stat-label">BEST STREAK</span
+            ><strong id="best-streak">00</strong
+            ><span class="stat-unit">MATCHES</span>
+          </div>
+        </div>
+        <div class="play-area">
+          <div class="round-line">
+            <span id="yard-status" aria-live="polite"
+              >TAP A DUMPSTER TO RELEASE A COLOR</span
+            >
+            <span class="round-count" id="race-details"
+              >SPRINT / 4 DUMPSTERS</span
+            >
+          </div>
+          <div class="yard" id="yard" aria-label="Color sorting yard">
+            <svg
+              class="track-map"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path class="track-shadow" id="track-shadow"></path>
+              <path class="track-lane" id="track-lane"></path>
+              <path class="track-dashes" id="track-dashes"></path>
+            </svg>
+            <div
+              class="track-markers"
+              id="track-markers"
+              aria-hidden="true"
+            ></div>
+            <div
+              class="track-riders"
+              id="track-riders"
+              aria-hidden="true"
+            ></div>
+            <div
+              class="stations"
+              id="stations"
+              role="group"
+              aria-label="Dumpsters"
+            ></div>
+          </div>
+          <div class="game-footer">
+            <p id="game-message">
+              Tap a dumpster to dispatch its next stack of colors.
+            </p>
+            <span class="save-indicator" id="save-indicator">LOCAL GAME</span>
+          </div>
+        </div>
+        <footer class="bottom-note">
+          <span>TAP TO RELEASE</span
+          ><span class="note-separator" aria-hidden="true">·</span
+          ><span>MATCH OR EMPTY TO DOCK</span
+          ><span class="note-separator" aria-hidden="true">·</span
+          ><span>DON'T FILL THE TRACK</span>
+        </footer>
+      </section>
+    </main>
+    <div class="rotate-overlay" role="status">
+      <div class="rotate-card">
+        <span class="rotate-phone" aria-hidden="true"></span>
+        <strong>Turn your phone sideways</strong>
+        <span
+          >Color Magic plays in landscape so every dumpster fits on screen. Your
+          race is paused until you rotate.</span
+        >
+      </div>
+    </div>
+  </body>
+</html>
