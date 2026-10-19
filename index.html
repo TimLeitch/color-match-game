@@ -47,7 +47,7 @@
             <div>
               <h1 id="game-title">Keep it <span>moving.</span></h1>
               <p class="intro-copy">
-                Release a stack. Let the loop find its home.
+                Release a stack. Choose the dumpster it rides to.
               </p>
             </div>
             <button
@@ -71,13 +71,7 @@
           <div class="stat">
             <span class="stat-label">SORTED</span
             ><strong id="sorted-count">00</strong
-            ><span class="stat-unit" id="sorted-total">/ 20</span>
-          </div>
-          <div class="stat-divider" aria-hidden="true"></div>
-          <div class="stat">
-            <span class="stat-label">TIME LEFT</span
-            ><strong id="race-clock">60</strong
-            ><span class="stat-unit">SEC</span>
+            ><span class="stat-unit" id="sorted-total">/ 04</span>
           </div>
           <div class="stat-divider" aria-hidden="true"></div>
           <div class="stat" id="track-stat">
@@ -95,13 +89,14 @@
         <div class="play-area">
           <div class="round-line">
             <span id="yard-status" aria-live="polite"
-              >TAP A DUMPSTER TO RELEASE A COLOR</span
+              >TAP A DUMPSTER TO RELEASE ITS NEXT STACK</span
             >
             <span class="round-count" id="race-details"
-              >SPRINT / 4 DUMPSTERS</span
+              >SPRINT / 4 DUMPSTERS / 3 COLORS</span
             >
           </div>
           <div class="yard" id="yard" aria-label="Color sorting yard">
+            <svg class="chutes" id="chutes" aria-hidden="true"></svg>
             <svg
               class="track-map"
               viewBox="0 0 100 100"
@@ -111,6 +106,9 @@
               <path class="track-shadow" id="track-shadow"></path>
               <path class="track-lane" id="track-lane"></path>
               <path class="track-dashes" id="track-dashes"></path>
+            </svg>
+            <svg class="route-layer" id="route-layer" aria-hidden="true">
+              <polyline class="route" id="route"></polyline>
             </svg>
             <div
               class="track-markers"
@@ -131,7 +129,7 @@
           </div>
           <div class="game-footer">
             <p id="game-message">
-              Tap a dumpster to dispatch its next stack of colors.
+              Sort every dumpster down to one color.
             </p>
             <span class="save-indicator" id="save-indicator">LOCAL GAME</span>
           </div>
@@ -139,9 +137,11 @@
         <footer class="bottom-note">
           <span>TAP TO RELEASE</span
           ><span class="note-separator" aria-hidden="true">·</span
+          ><span>TAP WHERE IT GOES</span
+          ><span class="note-separator" aria-hidden="true">·</span
           ><span>MATCH OR EMPTY TO DOCK</span
           ><span class="note-separator" aria-hidden="true">·</span
-          ><span>DON'T FILL THE TRACK</span>
+          ><span>ONE COLOR PER DUMPSTER</span>
         </footer>
       </section>
     </main>

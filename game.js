@@ -1,37 +1,42 @@
-const BIN_CAPACITY = 5;
 const SECTION_CAPACITY = 50;
 const COLORS = [
   { id: "citrus", name: "CITRUS", hex: "#d4e84d", ink: "#1b2108" },
   { id: "coral", name: "CORAL", hex: "#ef795d", ink: "#2a0f08" },
   { id: "sky", name: "SKY", hex: "#78bdd1", ink: "#0b2630" },
   { id: "blue", name: "BLUE", hex: "#3f63bd", ink: "#ffffff" },
+  { id: "plum", name: "PLUM", hex: "#9a62c9", ink: "#ffffff" },
+  { id: "mint", name: "MINT", hex: "#4fc792", ink: "#082116" },
 ];
+// Each map sets how many dumpsters it can host; early levels stay near the low end of the range.
 const TRACKS = [
   {
     id: "oval",
     name: "OVAL",
+    dumpsters: [2, 12],
     path: "M50 6 C76 6 94 23 94 50 C94 77 76 94 50 94 C24 94 6 77 6 50 C6 23 24 6 50 6 Z",
   },
   {
     id: "round-square",
     name: "ROUND SQUARE",
+    dumpsters: [4, 30],
     path: "M29 6 H71 Q94 6 94 29 V71 Q94 94 71 94 H29 Q6 94 6 71 V29 Q6 6 29 6 Z",
   },
   {
     id: "diamond",
     name: "DIAMOND",
+    dumpsters: [3, 18],
     path: "M50 5 C60 14 88 40 95 50 C86 60 60 87 50 95 C40 86 13 60 5 50 C14 40 40 13 50 5 Z",
   },
   {
     id: "figure-eight",
     name: "FIGURE EIGHT",
+    dumpsters: [3, 14],
     path: "M50 50 C14 28 20 5 50 5 C80 5 86 28 50 50 C14 72 20 95 50 95 C80 95 86 72 50 50 Z",
   },
 ];
 const RACES = [
   {
     name: "SPRINT",
-    seconds: 120,
     speed: 34,
     capacity: 80,
     volumes: [50, 20, 10, 5, 15],
@@ -40,7 +45,6 @@ const RACES = [
   },
   {
     name: "ENDURANCE",
-    seconds: 180,
     speed: 25,
     capacity: 140,
     volumes: [50, 25, 20, 15, 10],
@@ -48,25 +52,34 @@ const RACES = [
   },
   {
     name: "RELAY",
-    seconds: 150,
     speed: 43,
     capacity: 100,
     volumes: [50, 30, 15, 10, 5],
     description: "Quick handoffs. Match colors to build your streak.",
   },
 ];
+// Card sizes from roomiest to tightest; the layout uses the largest that still rings the yard.
+const CARD_SIZES = [
+  { name: "lg", width: 200 },
+  { name: "md", width: 150 },
+  { name: "sm", width: 112 },
+  { name: "xs", width: 84 },
+];
+const SVG_NS = "http://www.w3.org/2000/svg";
 const yardElement = document.querySelector("#yard");
 const trackMapElement = document.querySelector(".track-map");
 const trackPaths = ["#track-shadow", "#track-lane", "#track-dashes"].map(
   (selector) => document.querySelector(selector),
 );
+const chutesElement = document.querySelector("#chutes");
+const routeLayerElement = document.querySelector("#route-layer");
+const routeElement = document.querySelector("#route");
 const stationsElement = document.querySelector("#stations");
 const ridersElement = document.querySelector("#track-riders");
 const levelNumberElement = document.querySelector("#level-number");
 const levelShapeElement = document.querySelector("#level-shape");
 const sortedCountElement = document.querySelector("#sorted-count");
 const sortedTotalElement = document.querySelector("#sorted-total");
-const raceClockElement = document.querySelector("#race-clock");
 const raceDetailsElement = document.querySelector("#race-details");
 const trackStatElement = document.querySelector("#track-stat");
 const trackCountElement = document.querySelector("#track-count");
@@ -93,18 +106,16 @@ let race;
 let bins = [];
 let riders = [];
 let riderId = 0;
-let sectionsPerBin = BIN_CAPACITY;
-let totalTokens = 0;
+let sectionsPerBin = 4;
 let trackLength = 0;
 let sorted = 0;
 let score = 0;
 let streak = 0;
 let bestStreak = readBestStreak();
-let timeLeft = 0;
 let lastFrame = 0;
-let acceptingReleases = true;
 let finished = false;
-let timerId;
+// The dumpster whose next stack is picked up and waiting for a destination.
+let selected = null;
 let advanceId;
 let lastSavedAt = 0;
 let trackTable = { points: [], length: 1 };
@@ -160,13 +171,93 @@ function pickFromCycle(values, cycleSize, seedOffset) {
 
 function createLevelPlan() {
   const random = seededRandom(level * 982451653);
+  const levelTrack = pickFromCycle(TRACKS, TRACKS.length, 1847);
+  const [fewest, most] = levelTrack.dumpsters;
+  // The ceiling climbs with the level so the biggest yards arrive once the rules are familiar.
+  const reach = Math.min(1, 0.2 + (level - 1) / 10);
+  const ceiling = fewest + Math.round((most - fewest) * reach);
+  const dumpsterCount = fewest + Math.floor(random() * (ceiling - fewest + 1));
   return {
-    track: pickFromCycle(TRACKS, TRACKS.length, 1847),
+    track: levelTrack,
     race: pickFromCycle(RACES, RACES.length, 7919),
-    dumpsterCount: 3 + Math.floor(random() * 8),
-    sectionsPerBin: 4 + Math.floor(random() * 2),
+    dumpsterCount,
+    sectionsPerBin: (dumpsterCount > 16 ? 3 : 4) + Math.floor(random() * 2),
+    colorCount: Math.min(
+      COLORS.length,
+      dumpsterCount,
+      Math.max(2, Math.ceil(dumpsterCount / 3) + 1),
+    ),
     seed: Math.floor(random() * 0xffffffff),
   };
+}
+
+const colorById = (id) => COLORS.find((color) => color.id === id);
+const binNumber = (bin) => String(bin.id + 1).padStart(2, "0");
+const isFilled = (section) => section.amount + section.incoming > 0;
+const trackRoom = () => race.capacity - riders.length;
+// Distance a piece travels from one dock to another, always forward around the loop.
+const routeSpan = (from, to) => (((to.progress - from.progress) % 1) + 1) % 1;
+const riderProgress = (rider) => bins[rider.target].progress - rider.travel;
+
+function binColors(bin) {
+  return new Set(bin.sections.filter(isFilled).map((section) => section.color));
+}
+
+// The leftmost loaded section is the only one that can be released; while pieces are still landing in it, the dumpster waits.
+function nextStack(bin) {
+  return bin.sections.find(isFilled) || null;
+}
+
+function canPickUp(bin) {
+  const stack = nextStack(bin);
+  return Boolean(stack && stack.incoming === 0);
+}
+
+// Pieces top up matching sections first, then spill into empty ones.
+function planDelivery(target, color, amount) {
+  const matching = target.sections.filter(
+    (section) => isFilled(section) && section.color === color,
+  );
+  const empty = target.sections.filter((section) => !isFilled(section));
+  const deliveries = [];
+  let remaining = amount;
+  for (const section of [...matching, ...empty]) {
+    if (remaining <= 0) break;
+    const count = Math.min(
+      remaining,
+      SECTION_CAPACITY - section.amount - section.incoming,
+    );
+    if (count <= 0) continue;
+    deliveries.push({ section, count, joins: isFilled(section) });
+    remaining -= count;
+  }
+  return deliveries;
+}
+
+function deliverableAmount(source, target) {
+  const stack = nextStack(source);
+  if (!stack || source === target) return 0;
+  return planDelivery(
+    target,
+    stack.color,
+    Math.min(stack.amount, trackRoom()),
+  ).reduce((sum, delivery) => sum + delivery.count, 0);
+}
+
+function countSorted() {
+  return bins.filter((bin) => binColors(bin).size <= 1).length;
+}
+
+function hasAnyMove() {
+  return bins.some(
+    (source) =>
+      canPickUp(source) &&
+      bins.some(
+        (target) =>
+          target !== source &&
+          planDelivery(target, nextStack(source).color, 1).length > 0,
+      ),
+  );
 }
 
 // Samples the track in screen pixels so progress means equal pixel distance, even when the SVG is stretched.
@@ -207,6 +298,52 @@ function pointOnTrack(progress) {
   return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t };
 }
 
+// A card docks where a line from the middle of the track out towards it meets the track, so docks spread
+// along the track the same way the cards spread around the yard, even on pointed shapes like the diamond.
+function dockProgress(position, box) {
+  const target = Math.atan2(
+    (position.y - box.y) / box.halfH,
+    (position.x - box.x) / box.halfW,
+  );
+  let best = trackTable.points[0];
+  let bestScore = Infinity;
+  for (const point of trackTable.points) {
+    const u = (point.x - box.x) / box.halfW;
+    const v = (point.y - box.y) / box.halfH;
+    // Skip the figure eight's crossing, which sits right in the middle.
+    if (u * u + v * v < 0.04) continue;
+    const turn = Math.abs(Math.atan2(v, u) - target);
+    // Among points at almost the same angle, the one nearest the card wins.
+    const score =
+      Math.min(turn, Math.PI * 2 - turn) +
+      Math.hypot(point.x - position.x, point.y - position.y) * 1e-5;
+    if (score < bestScore) {
+      bestScore = score;
+      best = point;
+    }
+  }
+  return (best.distance / trackTable.length) % 1;
+}
+
+// Nudges sorted dock points apart so neighbouring markers never sit on top of each other.
+function spreadDocks(docks, minGap) {
+  if (docks.length < 2) return docks;
+  for (let pass = 0; pass < 60; pass += 1) {
+    let moved = false;
+    for (let index = 0; index < docks.length; index += 1) {
+      const next = (index + 1) % docks.length;
+      const gap = (docks[next] - docks[index] + 1) % 1;
+      if (gap >= minGap - 1e-6) continue;
+      const push = (minGap - gap) / 2;
+      docks[index] = (docks[index] - push + 1) % 1;
+      docks[next] = (docks[next] + push) % 1;
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  return docks;
+}
+
 // Pieces shrink so a full track's worth of them fits end to end as one solid line.
 function sizeRiders() {
   const largest = compactQuery.matches ? 14 : 20;
@@ -228,300 +365,419 @@ function setTrackShape() {
   levelShapeElement.textContent = track.name;
 }
 
-function raceForLevel() {
-  return plan.race;
-}
-
 function createStationButton(bin, index) {
   const button = document.createElement("button");
   button.className = "station";
   button.type = "button";
   button.dataset.station = String(index);
-  button.innerHTML = `<span class="station-heading"><span class="station-name"><span class="name-full">DUMPSTER </span><span class="name-num"></span></span><span class="station-count"></span></span><span class="dumpster"><span class="dumpster-sections"></span></span><span class="station-action"><span class="action-label">RELEASE</span><span class="station-volume"></span></span>`;
-  button.querySelector(".name-num").textContent = String(index + 1).padStart(
-    2,
-    "0",
+  button.innerHTML = `<span class="station-heading"><span class="station-name"><span class="name-full">DUMPSTER </span><span class="name-num"></span></span><span class="station-count"></span></span><span class="dumpster"><span class="dumpster-sections"></span></span><span class="station-action"><span class="action-label"></span><span class="station-volume"><span class="volume-value"></span><span class="volume-unit"> PCS</span></span></span>`;
+  button.querySelector(".name-num").textContent = binNumber(bin);
+  button.querySelector(".dumpster-sections").append(
+    ...bin.sections.map(() => {
+      const section = document.createElement("span");
+      section.className = "dumpster-section";
+      const amount = document.createElement("span");
+      amount.className = "section-amount";
+      section.append(amount);
+      return section;
+    }),
   );
-  button.addEventListener("click", () => releaseColor(bin.id));
+  button.addEventListener("click", () => chooseStation(bin.id));
+  button.addEventListener("pointerenter", () => previewRoute(bin.id));
+  button.addEventListener("pointerleave", () => previewRoute(null));
+  button.addEventListener("focus", () => previewRoute(bin.id));
+  button.addEventListener("blur", () => previewRoute(null));
+  button.addEventListener("animationend", () =>
+    button.classList.remove("is-denied"),
+  );
   stationsElement.append(button);
   return button;
 }
 
-function frameSlots(width, height, cardW, cardH, gap, margin) {
+// Splits the cards between rows (top and bottom) and columns (left and right) and centres each group on its side.
+function ringLayout(count, width, height, card, rowsFirst) {
+  const { width: cardW, height: cardH, gap, margin, pad } = card;
   const across = Math.max(
-    1,
+    0,
     Math.floor((width - margin * 2 + gap) / (cardW + gap)),
   );
-  const firstX =
-    (width - (across * cardW + (across - 1) * gap)) / 2 + cardW / 2;
-  const topY = margin + cardH / 2;
-  const bottomY = height - margin - cardH / 2;
-  const span = bottomY - topY - cardH - gap * 2;
-  const rows = Math.max(0, Math.floor((span + gap) / (cardH + gap)));
-  const sideY = (row) => topY + cardH / 2 + gap + ((row + 0.5) * span) / rows;
-  const slots = [];
-  for (let index = 0; index < across; index += 1)
-    slots.push({ x: firstX + index * (cardW + gap), y: topY, group: "top" });
-  for (let row = 0; row < rows; row += 1)
-    slots.push({
+  const band = margin + cardH + gap;
+  const down = Math.max(
+    0,
+    Math.floor((height - band * 2 + gap) / (cardH + gap)),
+  );
+  if (across * 2 + down * 2 < count) return null;
+  const sides = {};
+  const fill = (first, second, limit, total) => {
+    sides[first] = Math.min(limit, Math.ceil(total / 2));
+    sides[second] = Math.min(limit, total - sides[first]);
+    return total - sides[first] - sides[second];
+  };
+  if (rowsFirst) fill("right", "left", down, fill("top", "bottom", across, count));
+  else fill("top", "bottom", across, fill("right", "left", down, count));
+  const spread = (total, from, span) =>
+    Array.from({ length: total }, (_, index) => from + ((index + 0.5) * span) / total);
+  const rowSpan = width - margin * 2;
+  const columnSpan = height - band * 2;
+  // Clockwise from the top-left so neighbouring cards stay neighbours around the ring.
+  const positions = [
+    ...spread(sides.top, margin, rowSpan).map((x) => ({
+      x,
+      y: margin + cardH / 2,
+    })),
+    ...spread(sides.right, band, columnSpan).map((y) => ({
       x: width - margin - cardW / 2,
-      y: sideY(row),
-      group: "right",
-    });
-  for (let index = across - 1; index >= 0; index -= 1)
-    slots.push({
-      x: firstX + index * (cardW + gap),
-      y: bottomY,
-      group: "bottom",
-    });
-  for (let row = rows - 1; row >= 0; row -= 1)
-    slots.push({ x: margin + cardW / 2, y: sideY(row), group: "left" });
-  return slots;
+      y,
+    })),
+    ...spread(sides.bottom, margin, rowSpan)
+      .reverse()
+      .map((x) => ({ x, y: height - margin - cardH / 2 })),
+    ...spread(sides.left, band, columnSpan)
+      .reverse()
+      .map((y) => ({ x: margin + cardW / 2, y })),
+  ];
+  // Opposite sides share an inset so the track stays centred even when only one of them has cards.
+  const vertical = sides.top || sides.bottom ? band + pad : pad;
+  const horizontal =
+    sides.left || sides.right ? margin + cardW + gap + pad : pad;
+  const inset = {
+    top: vertical,
+    bottom: vertical,
+    left: horizontal,
+    right: horizontal,
+  };
+  const trackArea =
+    Math.max(0, width - inset.left - inset.right) *
+    Math.max(0, height - inset.top - inset.bottom);
+  return { positions, inset, trackArea };
 }
 
-// Cards ring the yard (top, right, bottom, left) and the track fills the space left in the middle.
-function frameLayout(count, width, height, cardH, gap, margin) {
-  let cardW = 200;
-  let slots = frameSlots(width, height, cardW, cardH, gap, margin);
-  for (let attempt = 0; attempt < 5 && slots.length < count; attempt += 1) {
-    cardW *= 0.88;
-    slots = frameSlots(width, height, cardW, cardH, gap, margin);
+// Tries each card size from largest down and keeps whichever ring leaves the track the most room.
+function chooseLayout(count, width, height) {
+  const compact = compactQuery.matches;
+  const spacing = compact
+    ? { gap: 4, margin: 4, pad: 14 }
+    : { gap: 8, margin: 8, pad: 20 };
+  const preferred = compact
+    ? 2
+    : count <= 6
+      ? 0
+      : count <= 12
+        ? 1
+        : count <= 20
+          ? 2
+          : 3;
+  const smallest = CARD_SIZES.length - 1;
+  const firstButton = stationsElement.children[0];
+  for (let step = preferred; step <= smallest + 4; step += 1) {
+    const size = CARD_SIZES[Math.min(step, smallest)];
+    // Past the smallest size, keep narrowing it until everything fits.
+    const cardW = size.width * 0.9 ** Math.max(0, step - smallest);
+    yardElement.dataset.card = size.name;
+    yardElement.style.setProperty("--station-width", `${cardW}px`);
+    const card = { ...spacing, width: cardW, height: firstButton.offsetHeight };
+    const options = [true, false]
+      .map((rowsFirst) => ringLayout(count, width, height, card, rowsFirst))
+      .filter(Boolean)
+      .sort((a, b) => b.trackArea - a.trackArea);
+    if (options.length) return options[0];
   }
-  const positions = Array.from(
-    { length: count },
-    (_, index) =>
-      slots[
-        Math.min(slots.length - 1, Math.floor((index * slots.length) / count))
-      ],
-  );
-  const used = new Set(positions.map((slot) => slot.group));
-  const inset = (group, size) =>
-    used.has(group) ? margin + size + gap + 20 : 20;
-  return {
-    cardW,
-    positions,
-    inset: {
-      top: inset("top", cardH),
-      bottom: inset("bottom", cardH),
-      left: inset("left", cardW),
-      right: inset("right", cardW),
-    },
+  // A yard this small can't fit every card, so space them as if they were smaller and let neighbours overlap.
+  const card = {
+    ...spacing,
+    width: CARD_SIZES[smallest].width,
+    height: firstButton.offsetHeight,
   };
-}
-
-// Short landscape screens: cards stack in columns down both sides so the track keeps the full height.
-function columnLayout(count, width, height, cardH, gap, margin) {
-  const rows = Math.max(
-    1,
-    Math.floor((height - margin * 2 + gap) / (cardH + gap)),
-  );
-  const leftCount = Math.ceil(count / 2);
-  const rightCount = count - leftCount;
-  const leftColumns = Math.ceil(leftCount / rows);
-  const rightColumns = Math.ceil(rightCount / rows);
-  const cardW = Math.max(
-    100,
-    Math.min(128, (width - 260) / (2 * leftColumns) - gap - margin),
-  );
-  const side = (total, fromRight) =>
-    Array.from({ length: total }, (_, index) => {
-      const column = Math.floor(index / rows);
-      const inColumn = Math.min(rows, total - column * rows);
-      const top = (height - (inColumn * cardH + (inColumn - 1) * gap)) / 2;
-      const offset = margin + cardW / 2 + column * (cardW + gap);
-      return {
-        x: fromRight ? width - offset : offset,
-        y: top + (index % rows) * (cardH + gap) + cardH / 2,
-      };
-    });
-  const edge = (columns) => margin + columns * (cardW + gap) + 12;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    card.width *= 0.85;
+    card.height *= 0.85;
+    const layout = ringLayout(count, width, height, card, true);
+    if (layout) return layout;
+  }
+  const { pad } = spacing;
   return {
-    cardW,
-    positions: [...side(leftCount, false), ...side(rightCount, true)],
-    inset: {
-      top: 16,
-      bottom: 16,
-      left: edge(leftColumns),
-      right: edge(rightColumns),
-    },
+    positions: Array.from({ length: count }, () => ({ x: width / 2, y: pad })),
+    inset: { top: pad, bottom: pad, left: pad, right: pad },
   };
-}
-
-function placeMarkers() {
-  [...markersElement.children].forEach((marker, index) => {
-    const point = pointOnTrack(bins[index].progress);
-    marker.style.left = `${point.x}px`;
-    marker.style.top = `${point.y}px`;
-  });
 }
 
 function placeStations() {
   if (!bins.length) return;
-  const rect = yardElement.getBoundingClientRect();
-  const compact = compactQuery.matches;
-  const gap = compact ? 4 : 10;
-  const margin = compact ? 4 : 8;
+  const width = yardElement.clientWidth;
+  const height = yardElement.clientHeight;
+  if (!width || !height) return;
   const buttons = [...stationsElement.children];
-  yardElement.style.setProperty("--station-width", compact ? "112px" : "200px");
-  const cardH = buttons[0].offsetHeight;
-  const layout = (compact ? columnLayout : frameLayout)(
-    bins.length,
-    rect.width,
-    rect.height,
-    cardH,
-    gap,
-    margin,
-  );
-  yardElement.style.setProperty("--station-width", `${layout.cardW}px`);
-  layout.positions.forEach((position, index) => {
-    buttons[index].style.left = `${position.x}px`;
-    buttons[index].style.top = `${position.y}px`;
-  });
-  const { inset } = layout;
+  const { positions, inset } = chooseLayout(bins.length, width, height);
+  const boxW = Math.max(120, width - inset.left - inset.right);
+  const boxH = Math.max(100, height - inset.top - inset.bottom);
   trackMapElement.style.left = `${inset.left}px`;
   trackMapElement.style.top = `${inset.top}px`;
-  trackMapElement.style.width = `${Math.max(120, rect.width - inset.left - inset.right)}px`;
-  trackMapElement.style.height = `${Math.max(100, rect.height - inset.top - inset.bottom)}px`;
+  trackMapElement.style.width = `${boxW}px`;
+  trackMapElement.style.height = `${boxH}px`;
   buildTrackTable();
   sizeRiders();
-  placeMarkers();
+  // Dumpsters are numbered in the direction pieces travel.
+  const box = {
+    x: inset.left + boxW / 2,
+    y: inset.top + boxH / 2,
+    halfW: boxW / 2,
+    halfH: boxH / 2,
+  };
+  const docks = positions
+    .map((position) => ({ position, progress: dockProgress(position, box) }))
+    .sort((a, b) => a.progress - b.progress);
+  const markerSize = markersElement.firstElementChild?.offsetWidth || 24;
+  const spread = spreadDocks(
+    docks.map((dock) => dock.progress),
+    Math.min(
+      0.8 / bins.length,
+      Math.max((markerSize * 1.3) / trackTable.length, 0.45 / bins.length),
+    ),
+  );
+  for (const layer of [chutesElement, routeLayerElement])
+    layer.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  bins.forEach((bin, index) => {
+    const { position } = docks[index];
+    bin.progress = spread[index];
+    buttons[index].style.left = `${position.x}px`;
+    buttons[index].style.top = `${position.y}px`;
+    const dock = pointOnTrack(bin.progress);
+    const chute = chutesElement.children[index];
+    chute.setAttribute("x1", position.x);
+    chute.setAttribute("y1", position.y);
+    chute.setAttribute("x2", dock.x);
+    chute.setAttribute("y2", dock.y);
+    const marker = markersElement.children[index];
+    marker.style.left = `${dock.x}px`;
+    marker.style.top = `${dock.y}px`;
+  });
+  // Pieces still waiting inside a dumpster leave from wherever its dock now sits.
+  for (const rider of riders)
+    if (rider.wait > 0)
+      rider.travel = routeSpan(bins[rider.source], bins[rider.target]);
+  previewRoute(null);
+}
+
+// Big stacks can add up to more of one color than its dumpsters could ever hold; trim until every color fits.
+function fitColorHomes(stacks, dumpsterCount) {
+  const smallest = Math.min(...race.volumes);
+  const perDumpster = sectionsPerBin * SECTION_CAPACITY;
+  for (;;) {
+    const totals = new Map();
+    for (const stack of stacks)
+      totals.set(stack.color, (totals.get(stack.color) || 0) + stack.amount);
+    const homes = [...totals.values()].reduce(
+      (sum, total) => sum + Math.ceil(total / perDumpster),
+      0,
+    );
+    if (homes <= dumpsterCount) return;
+    const [heaviest] = [...totals].sort((a, b) => b[1] - a[1])[0];
+    const stack = stacks
+      .filter((item) => item.color === heaviest && item.amount > smallest)
+      .sort((a, b) => b.amount - a.amount)[0];
+    if (!stack) return;
+    stack.amount = smallest;
+  }
+}
+
+function countSortedLayout(layout) {
+  let count = 0;
+  for (let start = 0; start < layout.length; start += sectionsPerBin) {
+    const colors = new Set(
+      layout
+        .slice(start, start + sectionsPerBin)
+        .filter(Boolean)
+        .map((stack) => stack.color),
+    );
+    if (colors.size <= 1) count += 1;
+  }
+  return count;
 }
 
 function buildBins() {
   const dumpsterCount = plan.dumpsterCount;
   sectionsPerBin = plan.sectionsPerBin;
-  const sectionCount = dumpsterCount * sectionsPerBin;
   const random = seededRandom(plan.seed);
-  const colorLoad = shuffled(
-    Array.from(
-      { length: sectionCount },
-      (_, index) =>
-        COLORS[
-          Math.floor(index / Math.ceil(sectionCount / COLORS.length)) %
-            COLORS.length
-        ].id,
-    ),
-    random,
-  );
+  const palette = shuffled(COLORS, random).slice(0, plan.colorCount);
+  const slots = dumpsterCount * sectionsPerBin;
+  // Some sections start open so there is always somewhere to begin moving stacks.
+  const emptyCount = Math.max(2, Math.round(slots * 0.2));
+  const stacks = Array.from({ length: slots - emptyCount }, (_, index) => ({
+    color: palette[index % palette.length].id,
+    amount: race.volumes[Math.floor(random() * race.volumes.length)],
+  }));
+  fitColorHomes(stacks, dumpsterCount);
+  // Deal a few times and keep the deal with the fewest dumpsters already down to one color.
+  let layout;
+  let fewestSorted = Infinity;
+  for (let attempt = 0; attempt < 16 && fewestSorted > 0; attempt += 1) {
+    const deal = shuffled([...stacks, ...Array(emptyCount).fill(null)], random);
+    const sortedCount = countSortedLayout(deal);
+    if (sortedCount < fewestSorted) {
+      layout = deal;
+      fewestSorted = sortedCount;
+    }
+  }
   bins = Array.from({ length: dumpsterCount }, (_, index) => ({
     id: index,
     name: `Dumpster ${String(index + 1).padStart(2, "0")}`,
     progress: index / dumpsterCount,
     streamEnd: 0,
-    sections: colorLoad
+    sections: layout
       .slice(index * sectionsPerBin, (index + 1) * sectionsPerBin)
-      .map((color, sectionIndex) => ({
-        color,
-        amount: race.volumes[(sectionIndex + index) % race.volumes.length],
+      .map((stack) => ({
+        color: stack?.color ?? null,
+        amount: stack?.amount ?? 0,
+        incoming: 0,
       })),
   }));
-  totalTokens = bins.reduce(
-    (sum, bin) =>
-      sum +
-      bin.sections.reduce((binSum, section) => binSum + section.amount, 0),
-    0,
-  );
   stationsElement.replaceChildren();
   bins.forEach(createStationButton);
   markersElement.replaceChildren(
-    ...bins.map((bin, index) => {
+    ...bins.map((bin) => {
       const marker = document.createElement("span");
       marker.className = "track-marker";
-      marker.textContent = String(index + 1);
+      marker.textContent = String(bin.id + 1);
       return marker;
+    }),
+  );
+  chutesElement.replaceChildren(
+    ...bins.map(() => {
+      const chute = document.createElementNS(SVG_NS, "line");
+      chute.setAttribute("class", "chute");
+      return chute;
     }),
   );
   renderStations();
   placeStations();
-  sortedTotalElement.textContent = `/ ${String(totalTokens).padStart(2, "0")}`;
-  raceDetailsElement.textContent = `${race.name} / ${dumpsterCount} DUMPSTERS / ${sectionsPerBin} SECTIONS`;
+  sortedTotalElement.textContent = `/ ${String(dumpsterCount).padStart(2, "0")}`;
+  raceDetailsElement.textContent = `${race.name} / ${dumpsterCount} DUMPSTERS / ${plan.colorCount} COLORS`;
 }
 
 function newLevel(nextLevel = false) {
-  clearInterval(timerId);
   clearTimeout(advanceId);
   flushSorted();
   if (nextLevel) level += 1;
   plan = createLevelPlan();
   track = plan.track;
-  race = raceForLevel();
+  race = plan.race;
   riders = [];
   riderId = 0;
-  sorted = 0;
   score = 0;
   streak = 0;
-  acceptingReleases = true;
+  selected = null;
   finished = false;
   levelNumberElement.textContent = String(level).padStart(2, "0");
   trackCapElement.textContent = `/ ${race.capacity}`;
-  yardStatusElement.textContent = `LEVEL ${String(level).padStart(2, "0")} - ${race.name} / ${track.name}`;
-  gameMessageElement.textContent = race.description;
+  yardStatusElement.textContent =
+    "TAP A DUMPSTER TO RELEASE ITS NEXT STACK, THEN TAP WHERE IT GOES";
+  gameMessageElement.textContent = `${race.description} Sort every dumpster down to one color.`;
   setTrackShape();
   buildBins();
-  timeLeft = race.seconds + Math.ceil(totalTokens / 10);
+  sorted = countSorted();
   render();
   saveProgress(true);
-  timerId = window.setInterval(() => {
-    flushSorted();
-    if (finished || isPaused()) return;
-    timeLeft -= 1;
-    renderClock();
-    if (timeLeft <= 0) finishRace(false);
-  }, 1000);
+}
+
+function stationState(bin, stack) {
+  const source = selected === null ? null : bins[selected];
+  if (source === bin)
+    return {
+      name: "source",
+      label: "CANCEL",
+      volume: `${Math.min(stack.amount, trackRoom())}`,
+      pieces: true,
+    };
+  if (source) {
+    const amount = deliverableAmount(source, bin);
+    return amount
+      ? { name: "target", label: "SEND HERE", volume: `+${amount}` }
+      : { name: "blocked", label: "NO ROOM", volume: "✕" };
+  }
+  if (finished) return { name: "off", label: "DONE", volume: "✓" };
+  if (!stack) return { name: "off", label: "EMPTY", volume: "—" };
+  if (stack.incoming > 0)
+    return { name: "off", label: "RECEIVING", volume: "…" };
+  if (trackRoom() <= 0)
+    return { name: "off", label: "TRACK FULL", volume: `${stack.amount}` };
+  return {
+    name: "ready",
+    label: "RELEASE",
+    volume: `${stack.amount}`,
+    pieces: true,
+  };
 }
 
 function renderStations() {
-  const canRelease =
-    acceptingReleases && !finished && riders.length < race.capacity;
+  const source = selected === null ? null : bins[selected];
+  const sourceStack = source && nextStack(source);
   bins.forEach((bin, index) => {
     const button = stationsElement.children[index];
-    const nextIndex = bin.sections.findIndex((section) => section.amount > 0);
-    const sections = button.querySelector(".dumpster-sections");
-    sections.replaceChildren();
-    for (
-      let sectionIndex = 0;
-      sectionIndex < sectionsPerBin;
-      sectionIndex += 1
-    ) {
-      const stack = bin.sections[sectionIndex];
-      const section = document.createElement("span");
-      section.className = "dumpster-section";
-      if (stack && stack.amount > 0) {
-        const color = COLORS.find((item) => item.id === stack.color);
-        section.style.setProperty("--swatch", color.hex);
-        section.style.setProperty("--swatch-ink", color.ink);
-        section.classList.toggle(
-          "is-next",
-          sectionIndex === nextIndex && canRelease,
-        );
-        section.setAttribute(
-          "aria-label",
-          `${color.name}, ${stack.amount} pieces`,
-        );
-        const amount = document.createElement("span");
-        amount.className = "section-amount";
-        amount.textContent = String(stack.amount);
-        section.append(amount);
-      } else {
-        section.classList.add("is-empty");
-      }
-      sections.append(section);
-    }
-    const stackAmount = bin.sections.reduce(
+    const stack = nextStack(bin);
+    const state = stationState(bin, stack);
+    const sectionElements = button.querySelector(".dumpster-sections").children;
+    bin.sections.forEach((section, sectionIndex) => {
+      const element = sectionElements[sectionIndex];
+      const color = isFilled(section) && colorById(section.color);
+      element.classList.toggle("is-empty", !color);
+      element.classList.toggle(
+        "is-next",
+        section === stack && state.name === "ready",
+      );
+      element.classList.toggle("is-picked", section === sourceStack);
+      element.classList.toggle("is-incoming", section.incoming > 0);
+      element.classList.toggle(
+        "is-reserved",
+        section.amount === 0 && section.incoming > 0,
+      );
+      element.style.setProperty("--swatch", color ? color.hex : "transparent");
+      element.style.setProperty("--swatch-ink", color ? color.ink : "#14190f");
+      element.firstChild.textContent =
+        section.amount > 0 ? String(section.amount) : "";
+    });
+    const colors = binColors(bin);
+    const pieces = bin.sections.reduce(
       (sum, section) => sum + section.amount,
       0,
     );
-    const nextStack = bin.sections.find((section) => section.amount > 0);
     button.querySelector(".station-count").textContent =
-      `${bin.sections.filter((section) => section.amount > 0).length}/${sectionsPerBin} SECTIONS`;
-    button.querySelector(".station-volume").textContent = nextStack
-      ? `${nextStack.amount} PCS`
-      : "EMPTY";
-    button.disabled = !nextStack || !canRelease;
+      colors.size === 0
+        ? "EMPTY"
+        : colors.size === 1
+          ? "SORTED"
+          : `${colors.size} COLORS`;
+    button.querySelector(".action-label").textContent = state.label;
+    button.querySelector(".volume-value").textContent = state.volume;
+    button.classList.toggle("has-pieces", Boolean(state.pieces));
+    for (const name of ["ready", "off", "source", "target", "blocked"])
+      button.classList.toggle(`is-${name}`, state.name === name);
+    button.classList.toggle("is-sorted", colors.size === 1);
+    button.setAttribute(
+      "aria-disabled",
+      String(state.name === "off" || state.name === "blocked"),
+    );
+    const colorSummary = colors.size
+      ? [...colors].map((id) => colorById(id).name).join(", ")
+      : "empty";
+    const action = {
+      ready: `release ${stack?.amount} ${stack && colorById(stack.color).name} pieces`,
+      source: "picked up, activate again to cancel",
+      target: `send ${state.volume.slice(1)} pieces here`,
+      blocked: "no room for this color",
+      off: state.label.toLowerCase(),
+    }[state.name];
     button.setAttribute(
       "aria-label",
-      `${bin.name}, ${bin.sections.filter((section) => section.amount > 0).length} active sections, ${stackAmount} pieces${nextStack ? `, release ${nextStack.amount} ${COLORS.find((color) => color.id === nextStack.color).name} pieces` : ", empty"}`,
+      `${bin.name}, ${pieces} pieces, ${colorSummary}. ${action}`,
     );
+    for (const element of [
+      markersElement.children[index],
+      chutesElement.children[index],
+    ]) {
+      element.classList.toggle("is-source", state.name === "source");
+      element.classList.toggle("is-target", state.name === "target");
+      element.classList.toggle("is-blocked", state.name === "blocked");
+    }
   });
 }
 
@@ -541,12 +797,10 @@ function renderRiders() {
       element.className = "rider";
       element.dataset.rider = String(rider.id);
       element.setAttribute("aria-hidden", "true");
-      element.style.backgroundColor = COLORS.find(
-        (color) => color.id === rider.color,
-      ).hex;
+      element.style.backgroundColor = colorById(rider.color).hex;
       ridersElement.append(element);
     }
-    const point = pointOnTrack(rider.progress);
+    const point = pointOnTrack(riderProgress(rider));
     element.style.left = `${point.x}px`;
     element.style.top = `${point.y}px`;
     existing.delete(rider.id);
@@ -554,90 +808,143 @@ function renderRiders() {
   for (const element of existing.values()) element.remove();
 }
 
-function renderClock() {
-  raceClockElement.textContent = String(Math.max(0, timeLeft)).padStart(2, "0");
-  raceClockElement.classList.toggle("is-urgent", timeLeft <= 10);
-}
-
 function render() {
   sortedCountElement.textContent = String(sorted).padStart(2, "0");
   trackCountElement.textContent = String(riders.length).padStart(2, "0");
   trackStatElement.classList.toggle("is-full", riders.length >= race.capacity);
   bestStreakElement.textContent = String(bestStreak).padStart(2, "0");
-  renderClock();
   renderStations();
   renderRiders();
 }
 
-function releaseColor(stationId) {
-  const bin = bins[stationId];
-  const stack = bin?.sections.find((section) => section.amount > 0);
-  if (
-    !acceptingReleases ||
-    finished ||
-    !stack ||
-    riders.length >= race.capacity
-  )
+// Highlights the stretch of track a stack would ride from the picked-up dumpster to this one.
+function previewRoute(binId) {
+  const source = selected === null ? null : bins[selected];
+  const target = binId === null ? null : bins[binId];
+  if (!source || !target || !deliverableAmount(source, target)) {
+    routeElement.setAttribute("points", "");
     return;
-  const available = race.capacity - riders.length;
-  const amount = Math.min(stack.amount, available);
-  const colorId = stack.color;
+  }
+  const span = routeSpan(source, target);
+  const steps = Math.max(2, Math.ceil(span * 240));
+  routeElement.setAttribute(
+    "points",
+    Array.from({ length: steps + 1 }, (_, index) => {
+      const point = pointOnTrack(source.progress + (span * index) / steps);
+      return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+    }).join(" "),
+  );
+}
+
+function deny(bin, message) {
+  const button = stationsElement.children[bin.id];
+  button.classList.remove("is-denied");
+  void button.offsetWidth;
+  button.classList.add("is-denied");
+  yardStatusElement.textContent = message;
+}
+
+function cancelSelection() {
+  if (selected === null) return;
+  selected = null;
+  previewRoute(null);
+  yardStatusElement.textContent =
+    "STACK PUT BACK - TAP A DUMPSTER TO RELEASE ITS NEXT STACK";
+  render();
+}
+
+function chooseStation(binId) {
+  if (finished || isPaused()) return;
+  const bin = bins[binId];
+  if (selected === null) pickUp(bin);
+  else if (selected === binId) cancelSelection();
+  else sendStack(bins[selected], bin);
+}
+
+function pickUp(bin) {
+  const stack = nextStack(bin);
+  if (!stack) return deny(bin, `DUMPSTER ${binNumber(bin)} IS EMPTY`);
+  if (stack.incoming > 0)
+    return deny(
+      bin,
+      `DUMPSTER ${binNumber(bin)} IS STILL RECEIVING - WAIT FOR IT TO LAND`,
+    );
+  if (trackRoom() <= 0)
+    return deny(bin, "TRACK FULL - WAIT FOR PIECES TO LAND");
+  selected = bin.id;
+  const colorName = colorById(stack.color).name;
+  const amount = Math.min(stack.amount, trackRoom());
+  yardStatusElement.textContent = bins.some((target) =>
+    deliverableAmount(bin, target),
+  )
+    ? `${amount} ${colorName} READY - TAP THE DUMPSTER TO SEND IT TO`
+    : `NO DUMPSTER HAS ROOM FOR ${colorName} - TAP ${binNumber(bin)} TO PUT IT BACK`;
+  render();
+}
+
+function sendStack(source, target) {
+  const stack = nextStack(source);
+  const colorName = colorById(stack.color).name;
+  const deliveries = planDelivery(
+    target,
+    stack.color,
+    Math.min(stack.amount, trackRoom()),
+  );
+  const amount = deliveries.reduce((sum, delivery) => sum + delivery.count, 0);
+  if (!amount)
+    return deny(
+      target,
+      `DUMPSTER ${binNumber(target)} HAS NO ${colorName} SECTION WITH ROOM AND NO EMPTY SECTION`,
+    );
   stack.amount -= amount;
   // Pieces leave one by one, a piece-width apart, so the stack becomes a solid line that keeps moving.
   const pieceGap = riderSize / ((race.speed / trackLength) * trackTable.length);
-  const streamStart = bin.streamEnd;
-  for (let index = 0; index < amount; index += 1) {
-    riders.push({
-      id: riderId++,
-      color: colorId,
-      source: stationId,
-      progress: bin.progress,
-      nextStation: (stationId + 1) % bins.length,
-      laps: 0,
-      wait: streamStart + index * pieceGap,
-    });
+  const travel = routeSpan(source, target);
+  let wait = source.streamEnd;
+  for (const { section, count, joins } of deliveries) {
+    section.color = stack.color;
+    section.incoming += count;
+    for (let index = 0; index < count; index += 1) {
+      riders.push({
+        id: riderId++,
+        color: stack.color,
+        source: source.id,
+        target: target.id,
+        section: target.sections.indexOf(section),
+        // The first piece into an empty section opens a new color home; the rest of that stream match it.
+        matched: joins || index > 0,
+        travel,
+        wait,
+      });
+      wait += pieceGap;
+    }
   }
-  bin.streamEnd = streamStart + amount * pieceGap;
-  if (riders.length >= race.capacity) {
-    acceptingReleases = false;
-    yardStatusElement.textContent = "TRACK FULL - WAIT FOR A DUMPSTER TO CLEAR";
-  } else {
-    yardStatusElement.textContent = `${amount} ${COLORS.find((color) => color.id === colorId).name} PIECES RELEASED - FOLLOW THE ${track.name}`;
-  }
+  source.streamEnd = wait;
+  selected = null;
+  previewRoute(null);
+  sorted = countSorted();
+  yardStatusElement.textContent = `${amount} ${colorName} RELEASED FROM ${binNumber(source)} - HEADING TO ${binNumber(target)}`;
   window.KG?.event("color_released", {
     level,
-    station: stationId + 1,
-    color: colorId,
+    station: source.id + 1,
+    target: target.id + 1,
+    color: stack.color,
     amount,
     race: race.name,
   });
   window.KG?.setStatus(
-    `Level ${level} · ${sorted} sorted · ${riders.length} on track`,
+    `Level ${level} · ${sorted}/${bins.length} sorted · ${riders.length} on track`,
   );
   render();
   saveProgress(true);
 }
 
-function canDock(rider, bin) {
-  if (bin.id === rider.source && rider.laps === 0) return false;
-  const matchingStack = bin.sections.find(
-    (section) =>
-      section.color === rider.color && section.amount < SECTION_CAPACITY,
-  );
-  const emptyStack = bin.sections.find((section) => section.amount === 0);
-  if (matchingStack) return matchingStack;
-  if (emptyStack) return emptyStack;
-  return null;
-}
-
-function visitStation(rider, station) {
-  const stack = canDock(rider, station);
-  if (!stack) return false;
-  const matched = stack.color === rider.color;
-  stack.color = rider.color;
-  stack.amount += 1;
-  sorted += 1;
-  if (matched) {
+function dockRider(rider) {
+  const bin = bins[rider.target];
+  const section = bin.sections[rider.section];
+  section.amount += 1;
+  section.incoming -= 1;
+  if (rider.matched) {
     streak += 1;
     score += 15 + Math.min(streak, 10);
     if (streak > bestStreak) {
@@ -646,17 +953,22 @@ function visitStation(rider, station) {
         localStorage.setItem("color-magic-best-streak", String(bestStreak));
       } catch {}
     }
-    yardStatusElement.textContent = `${COLORS.find((color) => color.id === rider.color).name} MATCHED - STREAK ${streak}`;
-    gameMessageElement.textContent = `${streak} matching ${streak === 1 ? "color" : "colors"} in a row.`;
   } else {
     streak = 0;
     score += 5;
-    yardStatusElement.textContent = `NEW COLOR DOCKED IN ${station.name.toUpperCase()}`;
-    gameMessageElement.textContent = "That empty dumpster is now a color home.";
   }
-  rider.dockedAt = station.id;
-  rider.matched = matched;
-  return true;
+  if (section.incoming > 0) return;
+  // Announce once the whole stream has landed rather than piece by piece.
+  const colorName = colorById(rider.color).name;
+  const sortedNow = binColors(bin).size === 1;
+  const message = sortedNow
+    ? `DUMPSTER ${binNumber(bin)} SORTED - ALL ${colorName}`
+    : `${colorName} LANDED IN ${binNumber(bin)} - STREAK ${streak}`;
+  // Don't talk over the prompt while the player is choosing a destination.
+  if (selected === null) yardStatusElement.textContent = message;
+  gameMessageElement.textContent = sortedNow
+    ? `Dumpster ${binNumber(bin)} holds only ${colorName.toLowerCase()} now.`
+    : `${streak} matching ${streak === 1 ? "piece" : "pieces"} in a row.`;
 }
 
 function saveProgress(force = false) {
@@ -694,34 +1006,22 @@ function saveProgress(force = false) {
   }
 }
 
-function finishRace(won) {
+function finishRace() {
   if (finished) return;
   flushSorted();
   finished = true;
-  acceptingReleases = false;
-  clearInterval(timerId);
-  if (won) {
-    yardStatusElement.textContent = `LEVEL ${String(level).padStart(2, "0")} COMPLETE - NEXT TRACK UP`;
-    gameMessageElement.textContent = `${race.name} cleared on the ${track.name.toLowerCase()} with ${score} points.`;
-    window.KG?.event("race_won", {
-      level,
-      race: race.name,
-      track: track.name,
-      score,
-      sorted,
-    });
-    advanceId = window.setTimeout(() => newLevel(true), 2200);
-  } else {
-    yardStatusElement.textContent = "TIME UP - RESET TO RACE AGAIN";
-    gameMessageElement.textContent = `You sorted ${sorted} of ${totalTokens} pieces. Try this track again.`;
-    window.KG?.event("race_lost", {
-      level,
-      race: race.name,
-      track: track.name,
-      score,
-      sorted,
-    });
-  }
+  selected = null;
+  previewRoute(null);
+  yardStatusElement.textContent = `LEVEL ${String(level).padStart(2, "0")} COMPLETE - NEXT TRACK UP`;
+  gameMessageElement.textContent = `All ${bins.length} dumpsters sorted on the ${track.name.toLowerCase()} with ${score} points.`;
+  window.KG?.event("race_won", {
+    level,
+    race: race.name,
+    track: track.name,
+    score,
+    sorted,
+  });
+  advanceId = window.setTimeout(() => newLevel(true), 2200);
   render();
   saveProgress();
 }
@@ -743,7 +1043,7 @@ function updateRiders(deltaSeconds) {
   const lapsPerSecond = race.speed / trackLength;
   for (const bin of bins)
     bin.streamEnd = Math.max(0, bin.streamEnd - deltaSeconds);
-  const docked = [];
+  const landed = [];
   for (let riderIndex = riders.length - 1; riderIndex >= 0; riderIndex -= 1) {
     const rider = riders[riderIndex];
     let moveSeconds = deltaSeconds;
@@ -754,38 +1054,33 @@ function updateRiders(deltaSeconds) {
       moveSeconds = -rider.wait;
       rider.wait = 0;
     }
-    const advance = lapsPerSecond * moveSeconds;
-    const oldProgress = rider.progress;
-    rider.progress = (oldProgress + advance) % 1;
-    const station = bins[rider.nextStation];
-    const distance = (station.progress - oldProgress + 1) % 1;
-    if (distance <= advance + 0.0001) {
-      if (visitStation(rider, station)) {
-        docked.push({ rider, station });
-        riders.splice(riderIndex, 1);
-        if (riders.length < race.capacity) acceptingReleases = true;
-      }
-      rider.nextStation = (rider.nextStation + 1) % bins.length;
-      if (rider.nextStation === 0) rider.laps += 1;
-    }
+    rider.travel -= lapsPerSecond * moveSeconds;
+    if (rider.travel > 0) continue;
+    riders.splice(riderIndex, 1);
+    landed.push(rider);
   }
-  if (docked.length) {
-    pendingSorted ??= { amount: 0, stations: new Set(), colors: new Set() };
-    for (const { rider, station } of docked) {
-      pendingSorted.amount += 1;
-      pendingSorted.stations.add(station.id + 1);
-      pendingSorted.colors.add(rider.color);
-    }
-    if (performance.now() - lastSortedEventAt > 750) flushSorted();
-    window.KG?.setStatus(
-      `Level ${level} · ${sorted} sorted · ${riders.length} on track`,
-    );
-    if (sorted === totalTokens && riders.length === 0) finishRace(true);
-    else {
-      render();
-      saveProgress();
-    }
+  if (!landed.length) return;
+  landed.sort((a, b) => a.id - b.id);
+  pendingSorted ??= { amount: 0, stations: new Set(), colors: new Set() };
+  for (const rider of landed) {
+    dockRider(rider);
+    pendingSorted.amount += 1;
+    pendingSorted.stations.add(rider.target + 1);
+    pendingSorted.colors.add(rider.color);
   }
+  if (performance.now() - lastSortedEventAt > 750) flushSorted();
+  sorted = countSorted();
+  window.KG?.setStatus(
+    `Level ${level} · ${sorted}/${bins.length} sorted · ${riders.length} on track`,
+  );
+  if (sorted === bins.length && riders.length === 0) {
+    finishRace();
+    return;
+  }
+  if (riders.length === 0 && selected === null && !hasAnyMove())
+    yardStatusElement.textContent = "NO MOVES LEFT - TAP ↻ TO RELOAD THE YARD";
+  render();
+  saveProgress();
 }
 
 function animate(timestamp) {
@@ -805,6 +1100,13 @@ const relayout = () =>
     renderRiders();
   });
 resetButton.addEventListener("click", () => newLevel(false));
+// Tapping the open yard or pressing Escape puts a picked-up stack back.
+yardElement.addEventListener("click", (event) => {
+  if (!event.target.closest(".station")) cancelSelection();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") cancelSelection();
+});
 window.addEventListener("resize", relayout);
 compactQuery.addEventListener("change", relayout);
 window.KG?.setStatus(`Level ${level} · ${track?.name || "starting"}`);

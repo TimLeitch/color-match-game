@@ -171,9 +171,6 @@ h1 span {
     500 32px/1.15 "DM Mono",
     monospace;
 }
-.stat strong.is-urgent {
-  color: #ff8f73;
-}
 .stat.is-full strong {
   color: #ffc069;
 }
@@ -218,9 +215,46 @@ h1 span {
   border-radius: 5px;
   background: rgb(255 254 249 / 66%);
 }
+.chutes,
+.route-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.chutes {
+  z-index: 0;
+}
+.chute {
+  stroke: #c9c6b6;
+  stroke-width: 2px;
+  stroke-dasharray: 4 4;
+  transition: stroke 130ms ease;
+}
+.chute.is-source,
+.chute.is-target {
+  stroke: #76a448;
+  stroke-dasharray: none;
+}
+.chute.is-blocked {
+  opacity: 0.35;
+}
+.route-layer {
+  z-index: 2;
+}
+.route {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 10px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.5;
+}
 .track-map {
   position: absolute;
-  z-index: 0;
+  z-index: 1;
   top: 21%;
   left: 24%;
   width: 52%;
@@ -252,7 +286,7 @@ h1 span {
 }
 .track-markers {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 0;
   pointer-events: none;
 }
@@ -270,10 +304,34 @@ h1 span {
     700 12px/1 "DM Mono",
     monospace;
   transform: translate(-50%, -50%);
+  transition:
+    background 130ms ease,
+    opacity 130ms ease;
+}
+.track-marker.is-source {
+  background: var(--accent);
+  color: #14190f;
+}
+.track-marker.is-target {
+  border-color: #fffef9;
+}
+.track-marker.is-blocked {
+  opacity: 0.4;
+}
+.yard[data-card="sm"] .track-marker {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+.yard[data-card="xs"] .track-marker {
+  width: 18px;
+  height: 18px;
+  border-width: 1.5px;
+  font-size: 9px;
 }
 .track-riders {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   inset: 0;
   pointer-events: none;
 }
@@ -291,7 +349,7 @@ h1 span {
 }
 .stations {
   position: absolute;
-  z-index: 4;
+  z-index: 5;
   inset: 0;
 }
 .station {
@@ -310,21 +368,59 @@ h1 span {
   transform: translate(-50%, -50%);
   transition:
     border-color 130ms ease,
-    box-shadow 130ms ease;
+    box-shadow 130ms ease,
+    opacity 130ms ease,
+    transform 130ms ease;
 }
 @media (hover: hover) {
-  .station:hover:not(:disabled) {
+  .station:is(.is-ready, .is-target):hover {
     border-color: var(--accent);
     box-shadow: 0 6px 0 rgb(0 0 0 / 28%);
   }
 }
-.station:active:not(:disabled) {
+.station:is(.is-ready, .is-target):active {
   border-color: var(--accent);
   box-shadow: 0 1px 0 rgb(0 0 0 / 28%);
 }
-.station:disabled {
-  cursor: not-allowed;
+.station.is-off {
+  cursor: default;
   border-color: #2b3a2f;
+}
+.station.is-sorted {
+  border-color: #76a448;
+}
+.station.is-sorted .station-name::after {
+  color: var(--accent);
+  content: " ✓";
+}
+.station.is-source {
+  z-index: 1;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px rgb(201 237 75 / 40%),
+    0 8px 0 rgb(0 0 0 / 28%);
+  transform: translate(-50%, calc(-50% - 4px));
+}
+.station.is-target {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.station.is-blocked {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.station.is-denied {
+  animation: deny 320ms ease;
+}
+@keyframes deny {
+  20%,
+  60% {
+    transform: translate(calc(-50% - 5px), -50%);
+  }
+  40%,
+  80% {
+    transform: translate(calc(-50% + 5px), -50%);
+  }
 }
 .station-heading {
   display: flex;
@@ -368,9 +464,38 @@ h1 span {
     700 17px/1 "DM Mono",
     monospace;
 }
-.dumpster-section.is-next {
+.dumpster-section.is-next,
+.dumpster-section.is-picked {
   outline: 2px solid #fff;
   outline-offset: 1px;
+}
+.dumpster-section.is-picked {
+  animation: picked 900ms ease-in-out infinite alternate;
+}
+@keyframes picked {
+  to {
+    outline-color: var(--accent);
+  }
+}
+/* Stripes mark a section with pieces still on their way in. */
+.dumpster-section.is-incoming {
+  background-image: linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 45%) 25%,
+    transparent 25% 50%,
+    rgb(255 255 255 / 45%) 50% 75%,
+    transparent 75%
+  );
+  background-size: 10px 10px;
+  animation: incoming 500ms linear infinite;
+}
+.dumpster-section.is-reserved {
+  opacity: 0.6;
+}
+@keyframes incoming {
+  to {
+    background-position: 10px 0;
+  }
 }
 .dumpster-section.is-empty {
   border: 1px dashed #5d7261;
@@ -390,15 +515,114 @@ h1 span {
     monospace;
   letter-spacing: 0.05em;
 }
-.station:disabled .station-action {
+.station:not(.has-pieces) .volume-unit {
+  display: none;
+}
+.station:is(.is-off, .is-blocked) .station-action {
   background: #34443a;
   color: #c8d6cb;
 }
+.station.is-source .station-action {
+  background: #fffef9;
+}
 .station-action .station-volume {
   margin-left: auto;
+  white-space: nowrap;
   font:
     700 14px "DM Mono",
     monospace;
+}
+/* Card sizes: the script picks the largest one that lets every dumpster ring the yard. */
+.yard[data-card="md"] .name-full {
+  display: none;
+}
+.yard[data-card="md"] .station {
+  gap: 5px;
+  padding: 6px;
+}
+.yard[data-card="md"] .dumpster-section {
+  height: 28px;
+}
+.yard[data-card="md"] .section-amount {
+  font-size: 14px;
+}
+.yard[data-card="md"] .station-action {
+  min-height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+.yard[data-card="md"] .station-action .station-volume {
+  font-size: 12px;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .station {
+  grid-template-areas:
+    "name volume"
+    "chips chips";
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 3px 6px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  box-shadow: 0 2px 0 rgb(0 0 0 / 28%);
+}
+.yard:is([data-card="sm"], [data-card="xs"]) :is(.station-heading, .station-action) {
+  display: contents;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) :is(.name-full, .station-count, .action-label) {
+  display: none;
+}
+.yard[data-card="xs"] .volume-unit {
+  display: none;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .station-name {
+  grid-area: name;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .dumpster {
+  grid-area: chips;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .station-action .station-volume {
+  grid-area: volume;
+  justify-self: end;
+  color: var(--accent);
+  font:
+    700 12px/16px "DM Mono",
+    monospace;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .station.is-source .station-volume {
+  color: #fffef9;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .station:is(.is-off, .is-blocked) .station-volume {
+  color: #9fb2a5;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .dumpster-section {
+  height: 22px;
+  border-radius: 3px;
+}
+.yard:is([data-card="sm"], [data-card="xs"]) .section-amount {
+  font-size: 12px;
+}
+.yard[data-card="xs"] .station {
+  gap: 2px 4px;
+  padding: 2px 4px 4px;
+  border-radius: 5px;
+}
+.yard[data-card="xs"] :is(.station-name, .station-action .station-volume) {
+  font-size: 10px;
+  line-height: 13px;
+}
+.yard[data-card="xs"] .dumpster-sections {
+  gap: 2px;
+}
+.yard[data-card="xs"] .dumpster-section {
+  height: 17px;
+  border-radius: 2px;
+}
+.yard[data-card="xs"] .section-amount {
+  font-size: 9px;
+  letter-spacing: -0.04em;
 }
 .game-footer {
   display: flex;
@@ -620,53 +844,6 @@ h1 span {
     width: 20px;
     height: 20px;
     font-size: 11px;
-  }
-  .station {
-    grid-template-areas:
-      "name volume"
-      "chips chips";
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: 3px 6px;
-    padding: 3px 5px;
-    border-width: 1px;
-    border-radius: 6px;
-    box-shadow: 0 2px 0 rgb(0 0 0 / 28%);
-  }
-  .station-heading,
-  .station-action {
-    display: contents;
-  }
-  .name-full,
-  .station-count,
-  .action-label {
-    display: none;
-  }
-  .station-name {
-    grid-area: name;
-    font-size: 12px;
-    line-height: 16px;
-  }
-  .dumpster {
-    grid-area: chips;
-  }
-  .station-action .station-volume {
-    grid-area: volume;
-    justify-self: end;
-    color: var(--accent);
-    font:
-      700 12px/16px "DM Mono",
-      monospace;
-  }
-  .station:disabled .station-volume {
-    color: #9fb2a5;
-  }
-  .dumpster-section {
-    height: 22px;
-    border-radius: 3px;
-  }
-  .section-amount {
-    font-size: 12px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
