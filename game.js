@@ -676,10 +676,10 @@ function stationState(bin, stack) {
     const amount = deliverableAmount(source, bin);
     return amount
       ? { name: "target", label: "SEND HERE", volume: `+${amount}` }
-      : { name: "blocked", label: "NO ROOM", icon: "blocked" };
+      : { name: "blocked", label: "NO ROOM", volume: "✕" };
   }
-  if (finished) return { name: "off", label: "DONE", icon: "done" };
-  if (!stack) return { name: "off", label: "EMPTY", icon: "empty" };
+  if (finished) return { name: "off", label: "DONE", volume: "✓" };
+  if (!stack) return { name: "off", label: "EMPTY", volume: "—" };
   if (stack.incoming > 0)
     return { name: "off", label: "RECEIVING", volume: "…" };
   if (trackRoom() <= 0)
@@ -743,13 +743,16 @@ function renderStations() {
     const colorSummary = colors.size
       ? [...colors].map((id) => colorById(id).name).join(", ")
       : "empty";
-    const action = {
-      ready: `release ${stack?.amount} ${stack && colorById(stack.color).name} pieces`,
-      source: "picked up, activate again to cancel",
-      target: `send ${state.volume.slice(1)} pieces here`,
-      blocked: "no room for this color",
-      off: state.label.toLowerCase(),
-    }[state.name];
+    const action =
+      state.name === "ready"
+        ? `release ${stack?.amount} ${stack && colorById(stack.color).name} pieces`
+        : state.name === "source"
+          ? "picked up, activate again to cancel"
+          : state.name === "target"
+            ? `send ${state.volume.slice(1)} pieces here`
+            : state.name === "blocked"
+              ? "no room for this color"
+              : state.label.toLowerCase();
     button.setAttribute(
       "aria-label",
       `${bin.name}, ${pieces} pieces, ${colorSummary}. ${action}`,
