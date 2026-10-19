@@ -413,10 +413,14 @@ function ringLayout(count, width, height, card, rowsFirst) {
     sides[second] = Math.min(limit, total - sides[first]);
     return total - sides[first] - sides[second];
   };
-  if (rowsFirst) fill("right", "left", down, fill("top", "bottom", across, count));
+  if (rowsFirst)
+    fill("right", "left", down, fill("top", "bottom", across, count));
   else fill("top", "bottom", across, fill("right", "left", down, count));
   const spread = (total, from, span) =>
-    Array.from({ length: total }, (_, index) => from + ((index + 0.5) * span) / total);
+    Array.from(
+      { length: total },
+      (_, index) => from + ((index + 0.5) * span) / total,
+    );
   const rowSpan = width - margin * 2;
   const columnSpan = height - band * 2;
   // Clockwise from the top-left so neighbouring cards stay neighbours around the ring.
@@ -679,6 +683,20 @@ function newLevel(nextLevel = false) {
   saveProgress(true);
 }
 
+// Monospace-weight status glyphs that sit inside the volume slot instead of a number.
+function statusIcon(kind) {
+  const paths = {
+    blocked: "M6 6L18 18M18 6L6 18", // X
+    done: "M4 12.5L9.5 18L20 6", // check
+    empty: "M5 12H19", // dash
+  }[kind];
+  return (
+    `<svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">` +
+    `<path d="${paths}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `</svg>`
+  );
+}
+
 function stationState(bin, stack) {
   const source = selected === null ? null : bins[selected];
   if (source === bin)
@@ -692,10 +710,10 @@ function stationState(bin, stack) {
     const amount = deliverableAmount(source, bin);
     return amount
       ? { name: "target", label: "SEND HERE", volume: `+${amount}` }
-      : { name: "blocked", label: "NO ROOM", volume: "✕" };
+      : { name: "blocked", label: "NO ROOM", icon: "blocked" };
   }
-  if (finished) return { name: "off", label: "DONE", volume: "✓" };
-  if (!stack) return { name: "off", label: "EMPTY", volume: "—" };
+  if (finished) return { name: "off", label: "DONE", icon: "done" };
+  if (!stack) return { name: "off", label: "EMPTY", icon: "empty" };
   if (stack.incoming > 0)
     return { name: "off", label: "RECEIVING", volume: "…" };
   if (trackRoom() <= 0)
@@ -747,7 +765,12 @@ function renderStations() {
           ? "SORTED"
           : `${colors.size} COLORS`;
     button.querySelector(".action-label").textContent = state.label;
-    button.querySelector(".volume-value").textContent = state.volume;
+    const volume = button.querySelector(".volume-value");
+    if (state.icon) {
+      volume.innerHTML = statusIcon(state.icon);
+    } else {
+      volume.textContent = state.volume;
+    }
     button.classList.toggle("has-pieces", Boolean(state.pieces));
     for (const name of ["ready", "off", "source", "target", "blocked"])
       button.classList.toggle(`is-${name}`, state.name === name);
