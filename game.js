@@ -99,7 +99,7 @@ const portraitQuery = window.matchMedia(
 );
 const isPaused = () => portraitQuery.matches;
 
-let level = readSavedLevel();
+let level = 1;
 let plan;
 let track;
 let race;
@@ -111,37 +111,17 @@ let trackLength = 0;
 let sorted = 0;
 let score = 0;
 let streak = 0;
-let bestStreak = readBestStreak();
+let bestStreak = 0;
 let lastFrame = 0;
 let finished = false;
 // The dumpster whose next stack is picked up and waiting for a destination.
 let selected = null;
 let advanceId;
-let lastSavedAt = 0;
+let lastReportedAt = 0;
 let trackTable = { points: [], length: 1 };
 let riderSize = 16;
 let pendingSorted = null;
 let lastSortedEventAt = 0;
-
-function readSavedLevel() {
-  const hostedLevel = Number(window.KG?.initialSave?.level) || 1;
-  if (window.KG) return hostedLevel;
-  try {
-    return Number(localStorage.getItem("color-magic-level")) || 1;
-  } catch {
-    return hostedLevel;
-  }
-}
-
-function readBestStreak() {
-  const hostedValue = Number(window.KG?.initialSave?.bestStreak) || 0;
-  if (window.KG) return hostedValue;
-  try {
-    return Number(localStorage.getItem("color-magic-best-streak")) || 0;
-  } catch {
-    return hostedValue;
-  }
-}
 
 function seededRandom(seed) {
   let state = seed >>> 0;
@@ -413,10 +393,14 @@ function ringLayout(count, width, height, card, rowsFirst) {
     sides[second] = Math.min(limit, total - sides[first]);
     return total - sides[first] - sides[second];
   };
-  if (rowsFirst) fill("right", "left", down, fill("top", "bottom", across, count));
+  if (rowsFirst)
+    fill("right", "left", down, fill("top", "bottom", across, count));
   else fill("top", "bottom", across, fill("right", "left", down, count));
   const spread = (total, from, span) =>
-    Array.from({ length: total }, (_, index) => from + ((index + 0.5) * span) / total);
+    Array.from(
+      { length: total },
+      (_, index) => from + ((index + 0.5) * span) / total,
+    );
   const rowSpan = width - margin * 2;
   const columnSpan = height - band * 2;
   // Clockwise from the top-left so neighbouring cards stay neighbours around the ring.
@@ -676,7 +660,7 @@ function newLevel(nextLevel = false) {
   buildBins();
   sorted = countSorted();
   render();
-  saveProgress(true);
+  reportProgress(true);
 }
 
 function stationState(bin, stack) {
@@ -692,10 +676,10 @@ function stationState(bin, stack) {
     const amount = deliverableAmount(source, bin);
     return amount
       ? { name: "target", label: "SEND HERE", volume: `+${amount}` }
-      : { name: "blocked", label: "NO ROOM", volume: "✕" };
+      : { name: "blocked", label: "NO ROOM", icon: "blocked" };
   }
-  if (finished) return { name: "off", label: "DONE", volume: "✓" };
-  if (!stack) return { name: "off", label: "EMPTY", volume: "—" };
+  if (finished) return { name: "off", label: "DONE", icon: "done" };
+  if (!stack) return { name: "off", label: "EMPTY", icon: "empty" };
   if (stack.incoming > 0)
     return { name: "off", label: "RECEIVING", volume: "…" };
   if (trackRoom() <= 0)
@@ -936,7 +920,7 @@ function sendStack(source, target) {
     `Level ${level} · ${sorted}/${bins.length} sorted · ${riders.length} on track`,
   );
   render();
-  saveProgress(true);
+  reportProgress(true);
 }
 
 function dockRider(rider) {
@@ -947,12 +931,7 @@ function dockRider(rider) {
   if (rider.matched) {
     streak += 1;
     score += 15 + Math.min(streak, 10);
-    if (streak > bestStreak) {
-      bestStreak = streak;
-      try {
-        localStorage.setItem("color-magic-best-streak", String(bestStreak));
-      } catch {}
-    }
+    if (streak > bestStreak) bestStreak = streak;
   } else {
     streak = 0;
     score += 5;
@@ -971,39 +950,22 @@ function dockRider(rider) {
     : `${streak} matching ${streak === 1 ? "piece" : "pieces"} in a row.`;
 }
 
-function saveProgress(force = false) {
+// Session-only play: nothing is written to disk or an account.
+function reportProgress(force = false) {
   const now = performance.now();
-  if (!force && now - lastSavedAt < 350) return;
-  lastSavedAt = now;
-  const data = { level, bestStreak, score, sorted };
-  try {
-    localStorage.setItem("color-magic-level", String(level));
-    localStorage.setItem("color-magic-save", JSON.stringify(data));
-  } catch {}
-  if (window.KG) {
-    window.KG.save(data);
-    window.KG.report({
-      level,
-      score,
-      sorted,
-      bestStreak,
-      onTrack: riders.length,
-      race: race.name,
-      dumpsters: bins.length,
-    });
-    saveIndicatorElement.textContent =
-      window.KG.saveState === "error" ? "SAVE ERROR" : "ACCOUNT SAVE";
-    saveIndicatorElement.classList.toggle(
-      "is-error",
-      window.KG.saveState === "error",
-    );
-    saveIndicatorElement.classList.toggle(
-      "is-saved",
-      window.KG.saveState === "saved",
-    );
-  } else {
-    saveIndicatorElement.textContent = "LOCAL GAME";
-  }
+  if (!force && now - lastReportedAt < 350) return;
+  lastReportedAt = now;
+  saveIndicatorElement.textContent = "SESSION ONLY";
+  saveIndicatorElement.classList.remove("is-error", "is-saved");
+  window.KG?.report({
+    level,
+    score,
+    sorted,
+    bestStreak,
+    onTrack: riders.length,
+    race: race.name,
+    dumpsters: bins.length,
+  });
 }
 
 function finishRace() {
@@ -1023,7 +985,7 @@ function finishRace() {
   });
   advanceId = window.setTimeout(() => newLevel(true), 2200);
   render();
-  saveProgress();
+  reportProgress();
 }
 
 function flushSorted() {
@@ -1080,7 +1042,7 @@ function updateRiders(deltaSeconds) {
   if (riders.length === 0 && selected === null && !hasAnyMove())
     yardStatusElement.textContent = "NO MOVES LEFT - TAP ↻ TO RELOAD THE YARD";
   render();
-  saveProgress();
+  reportProgress();
 }
 
 function animate(timestamp) {

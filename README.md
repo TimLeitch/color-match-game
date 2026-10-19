@@ -4,7 +4,11 @@ A dumpster-and-conveyor color sorter for Kaotic Gaming. Tap a dumpster to pick u
 
 ## Play
 
-Open `index.html` directly or serve this folder with any static file server. No build step or dependencies are required.
+**[Play Color Magic](https://timleitch.github.io/color-match-game/)** — open in the browser, no account, no install.
+
+Progress is session-only. Refresh and you're back at level 1. This same build will later ship on [Kaotic Gaming](https://chaotic.strictgaming.com); until then, GitHub Pages is the public demo.
+
+You can also open `index.html` locally or serve this folder with any static file server. No build step or dependencies are required.
 
 ## Levels
 
@@ -13,4 +17,3 @@ Open `index.html` directly or serve this folder with any static file server. No 
 - Dumpsters ring the yard without covering the track, and each one docks to the stretch of track facing it. Cards shrink as the count grows.
 - Dumpsters have 4–5 sections (3–4 on the biggest maps), each holding up to 50 pieces of one color. About a fifth of sections start empty.
 - Color count grows with the map, from 2 up to 6.
-- Best streak and level are saved locally, or to the Kaotic Gaming account when hosted.
