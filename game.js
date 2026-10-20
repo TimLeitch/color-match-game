@@ -2,35 +2,37 @@ const SECTION_CAPACITY = 50;
 const COLORS = [
   { id: "citrus", name: "CITRUS", hex: "#d4e84d", ink: "#1b2108" },
   { id: "coral", name: "CORAL", hex: "#ef795d", ink: "#2a0f08" },
-  { id: "sky", name: "SKY", hex: "#78bdd1", ink: "#0b2630" },
+  { id: "amber", name: "AMBER", hex: "#f0a202", ink: "#2a1a00" },
+  { id: "sky", name: "SKY", hex: "#2ec4b6", ink: "#06221f" },
   { id: "blue", name: "BLUE", hex: "#3f63bd", ink: "#ffffff" },
   { id: "plum", name: "PLUM", hex: "#9a62c9", ink: "#ffffff" },
-  { id: "mint", name: "MINT", hex: "#4fc792", ink: "#082116" },
+  { id: "rose", name: "ROSE", hex: "#e05780", ink: "#ffffff" },
+  { id: "mint", name: "MINT", hex: "#2a9d6e", ink: "#04150e" },
 ];
-// Each map sets how many dumpsters it can host; early levels stay near the low end of the range.
+// Each map sets how many dumpsters it can host; early levels stay at the low end of the range.
 const TRACKS = [
   {
     id: "oval",
     name: "OVAL",
-    dumpsters: [2, 12],
+    dumpsters: [2, 6],
     path: "M50 6 C76 6 94 23 94 50 C94 77 76 94 50 94 C24 94 6 77 6 50 C6 23 24 6 50 6 Z",
   },
   {
     id: "round-square",
     name: "ROUND SQUARE",
-    dumpsters: [4, 30],
+    dumpsters: [3, 10],
     path: "M29 6 H71 Q94 6 94 29 V71 Q94 94 71 94 H29 Q6 94 6 71 V29 Q6 6 29 6 Z",
   },
   {
     id: "diamond",
     name: "DIAMOND",
-    dumpsters: [3, 18],
+    dumpsters: [3, 8],
     path: "M50 5 C60 14 88 40 95 50 C86 60 60 87 50 95 C40 86 13 60 5 50 C14 40 40 13 50 5 Z",
   },
   {
     id: "figure-eight",
     name: "FIGURE EIGHT",
-    dumpsters: [3, 14],
+    dumpsters: [3, 7],
     path: "M50 50 C14 28 20 5 50 5 C80 5 86 28 50 50 C14 72 20 95 50 95 C80 95 86 72 50 50 Z",
   },
 ];
@@ -39,7 +41,7 @@ const RACES = [
     name: "SPRINT",
     speed: 34,
     capacity: 80,
-    volumes: [50, 20, 10, 5, 15],
+    volumes: [25, 20, 15, 10],
     description:
       "Fast dispatches. Each color section carries a different load.",
   },
@@ -47,14 +49,14 @@ const RACES = [
     name: "ENDURANCE",
     speed: 25,
     capacity: 140,
-    volumes: [50, 25, 20, 15, 10],
+    volumes: [30, 20, 15, 10],
     description: "A longer haul with room for a heavier convoy.",
   },
   {
     name: "RELAY",
     speed: 43,
     capacity: 100,
-    volumes: [50, 30, 15, 10, 5],
+    volumes: [25, 20, 15, 10],
     description: "Quick handoffs. Match colors to build your streak.",
   },
 ];
@@ -153,20 +155,23 @@ function createLevelPlan() {
   const random = seededRandom(level * 982451653);
   const levelTrack = pickFromCycle(TRACKS, TRACKS.length, 1847);
   const [fewest, most] = levelTrack.dumpsters;
-  // The ceiling climbs with the level so the biggest yards arrive once the rules are familiar.
-  const reach = Math.min(1, 0.2 + (level - 1) / 10);
+  // Ceiling climbs slowly — full track capacity around level 21, not by level 9.
+  const reach = Math.min(1, (level - 1) / 20);
   const ceiling = fewest + Math.round((most - fewest) * reach);
   const dumpsterCount = fewest + Math.floor(random() * (ceiling - fewest + 1));
+  // Prefer spare dumpsters as working space; tiny yards keep 2 colors and use empty sections instead.
+  const spareBins = Math.max(1, Math.ceil(dumpsterCount / 3));
+  let colorCount = Math.min(COLORS.length, dumpsterCount - spareBins);
+  if (colorCount < 2) colorCount = Math.min(2, dumpsterCount);
   return {
     track: levelTrack,
     race: pickFromCycle(RACES, RACES.length, 7919),
     dumpsterCount,
-    sectionsPerBin: (dumpsterCount > 16 ? 3 : 4) + Math.floor(random() * 2),
-    colorCount: Math.min(
-      COLORS.length,
-      dumpsterCount,
-      Math.max(2, Math.ceil(dumpsterCount / 3) + 1),
-    ),
+    // Fewer sections early on — less to untangle.
+    sectionsPerBin: level < 6 ? 3 : 3 + Math.floor(random() * 2),
+    colorCount,
+    // Light scramble early; still capped so yards stay solvable.
+    scrambleMoves: Math.min(3 + level * 2, dumpsterCount * 4, 24),
     seed: Math.floor(random() * 0xffffffff),
   };
 }
@@ -224,6 +229,16 @@ function deliverableAmount(source, target) {
   ).reduce((sum, delivery) => sum + delivery.count, 0);
 }
 
+// Front stacks can swap in place when a send has nowhere to land.
+function canSwap(source, target) {
+  return (
+    source !== target &&
+    canPickUp(source) &&
+    canPickUp(target) &&
+    nextStack(source).color !== nextStack(target).color
+  );
+}
+
 function countSorted() {
   return bins.filter((bin) => binColors(bin).size <= 1).length;
 }
@@ -235,7 +250,8 @@ function hasAnyMove() {
       bins.some(
         (target) =>
           target !== source &&
-          planDelivery(target, nextStack(source).color, 1).length > 0,
+          (planDelivery(target, nextStack(source).color, 1).length > 0 ||
+            canSwap(source, target)),
       ),
   );
 }
@@ -542,40 +558,75 @@ function placeStations() {
   previewRoute(null);
 }
 
-// Big stacks can add up to more of one color than its dumpsters could ever hold; trim until every color fits.
-function fitColorHomes(stacks, dumpsterCount) {
-  const smallest = Math.min(...race.volumes);
-  const perDumpster = sectionsPerBin * SECTION_CAPACITY;
-  for (;;) {
-    const totals = new Map();
-    for (const stack of stacks)
-      totals.set(stack.color, (totals.get(stack.color) || 0) + stack.amount);
-    const homes = [...totals.values()].reduce(
-      (sum, total) => sum + Math.ceil(total / perDumpster),
-      0,
+// Build a solved yard, then undo it with legal pours so every deal stays solvable.
+function fillSolvedDumpster(color, random) {
+  // Leave one open section so scramble (and the player) always have a landing pad.
+  const filled = Math.max(1, sectionsPerBin - 1);
+  const chunks = shuffled([...race.volumes], random).slice(0, filled);
+  return Array.from({ length: sectionsPerBin }, (_, index) => ({
+    color: index < chunks.length ? color : null,
+    amount: index < chunks.length ? chunks[index] : 0,
+    incoming: 0,
+  }));
+}
+
+function pourDirect(source, target, amount) {
+  const stack = nextStack(source);
+  if (!stack) return 0;
+  const color = stack.color;
+  const deliveries = planDelivery(target, color, amount);
+  const moved = deliveries.reduce((sum, delivery) => sum + delivery.count, 0);
+  if (!moved) return 0;
+  stack.amount -= moved;
+  if (stack.amount <= 0) {
+    stack.color = null;
+    stack.amount = 0;
+  }
+  for (const { section, count } of deliveries) {
+    section.color = color;
+    section.amount += count;
+  }
+  return moved;
+}
+
+function scrambleYard(random, moves) {
+  for (let step = 0; step < moves; step += 1) {
+    const sources = shuffled(
+      bins.filter((bin) => canPickUp(bin)),
+      random,
     );
-    if (homes <= dumpsterCount) return;
-    const [heaviest] = [...totals].sort((a, b) => b[1] - a[1])[0];
-    const stack = stacks
-      .filter((item) => item.color === heaviest && item.amount > smallest)
-      .sort((a, b) => b.amount - a.amount)[0];
-    if (!stack) return;
-    stack.amount = smallest;
+    let poured = false;
+    for (const source of sources) {
+      const stack = nextStack(source);
+      const targets = shuffled(
+        bins.filter(
+          (target) =>
+            target !== source &&
+            planDelivery(target, stack.color, 1).length > 0,
+        ),
+        random,
+      );
+      if (!targets.length) continue;
+      // Prefer pouring into dumpsters that already hold another color — that creates the mix.
+      const mixedFirst = [
+        ...targets.filter((target) => binColors(target).size > 0),
+        ...targets,
+      ];
+      const chunk = Math.min(
+        stack.amount,
+        race.volumes[Math.floor(random() * race.volumes.length)],
+      );
+      if (pourDirect(source, mixedFirst[0], Math.max(5, chunk)) > 0) {
+        poured = true;
+        break;
+      }
+    }
+    if (!poured) break;
   }
 }
 
-function countSortedLayout(layout) {
-  let count = 0;
-  for (let start = 0; start < layout.length; start += sectionsPerBin) {
-    const colors = new Set(
-      layout
-        .slice(start, start + sectionsPerBin)
-        .filter(Boolean)
-        .map((stack) => stack.color),
-    );
-    if (colors.size <= 1) count += 1;
-  }
-  return count;
+function isYardMessy() {
+  return countSorted() < bins.length && hasAnyMove();
 }
 
 function buildBins() {
@@ -583,37 +634,30 @@ function buildBins() {
   sectionsPerBin = plan.sectionsPerBin;
   const random = seededRandom(plan.seed);
   const palette = shuffled(COLORS, random).slice(0, plan.colorCount);
-  const slots = dumpsterCount * sectionsPerBin;
-  // Some sections start open so there is always somewhere to begin moving stacks.
-  const emptyCount = Math.max(2, Math.round(slots * 0.2));
-  const stacks = Array.from({ length: slots - emptyCount }, (_, index) => ({
-    color: palette[index % palette.length].id,
-    amount: race.volumes[Math.floor(random() * race.volumes.length)],
-  }));
-  fitColorHomes(stacks, dumpsterCount);
-  // Deal a few times and keep the deal with the fewest dumpsters already down to one color.
-  let layout;
-  let fewestSorted = Infinity;
-  for (let attempt = 0; attempt < 16 && fewestSorted > 0; attempt += 1) {
-    const deal = shuffled([...stacks, ...Array(emptyCount).fill(null)], random);
-    const sortedCount = countSortedLayout(deal);
-    if (sortedCount < fewestSorted) {
-      layout = deal;
-      fewestSorted = sortedCount;
-    }
-  }
+  // Solved start: one dumpster per color, spare dumpsters empty for working space.
   bins = Array.from({ length: dumpsterCount }, (_, index) => ({
     id: index,
     name: `Dumpster ${String(index + 1).padStart(2, "0")}`,
     progress: index / dumpsterCount,
     streamEnd: 0,
-    sections: layout
-      .slice(index * sectionsPerBin, (index + 1) * sectionsPerBin)
-      .map((stack) => ({
-        color: stack?.color ?? null,
-        amount: stack?.amount ?? 0,
-        incoming: 0,
-      })),
+    sections:
+      index < palette.length
+        ? fillSolvedDumpster(palette[index].id, random)
+        : Array.from({ length: sectionsPerBin }, () => ({
+            color: null,
+            amount: 0,
+            incoming: 0,
+          })),
+  }));
+  scrambleYard(random, plan.scrambleMoves);
+  // Keep nudging until the yard is mixed but still has a legal move.
+  for (let rescue = 0; rescue < 24 && !isYardMessy(); rescue += 1)
+    scrambleYard(random, 3);
+  // Shuffle dumpster seats so empties and mixes aren't always on the same side.
+  bins = shuffled(bins, random).map((bin, index) => ({
+    ...bin,
+    id: index,
+    name: `Dumpster ${String(index + 1).padStart(2, "0")}`,
   }));
   stationsElement.replaceChildren();
   bins.forEach(createStationButton);
@@ -654,7 +698,7 @@ function newLevel(nextLevel = false) {
   levelNumberElement.textContent = String(level).padStart(2, "0");
   trackCapElement.textContent = `/ ${race.capacity}`;
   yardStatusElement.textContent =
-    "TAP A DUMPSTER TO RELEASE ITS NEXT STACK, THEN TAP WHERE IT GOES";
+    "TAP A DUMPSTER TO RELEASE ITS NEXT STACK - SEND OR SWAP";
   gameMessageElement.textContent = `${race.description} Sort every dumpster down to one color.`;
   setTrackShape();
   buildBins();
@@ -674,15 +718,22 @@ function stationState(bin, stack) {
     };
   if (source) {
     const amount = deliverableAmount(source, bin);
-    return amount
-      ? { name: "target", label: "SEND HERE", volume: `+${amount}` }
-      : { name: "blocked", label: "NO ROOM", volume: "✕" };
+    if (amount)
+      return { name: "target", label: "SEND HERE", volume: `+${amount}` };
+    if (canSwap(source, bin))
+      return {
+        name: "swap",
+        label: "SWAP",
+        volume: `${nextStack(bin).amount}`,
+        pieces: true,
+      };
+    return { name: "blocked", label: "NO ROOM", volume: "✕" };
   }
   if (finished) return { name: "off", label: "DONE", volume: "✓" };
   if (!stack) return { name: "off", label: "EMPTY", volume: "—" };
   if (stack.incoming > 0)
     return { name: "off", label: "RECEIVING", volume: "…" };
-  if (trackRoom() <= 0)
+  if (trackRoom() <= 0 && !bins.some((target) => canSwap(bin, target)))
     return { name: "off", label: "TRACK FULL", volume: `${stack.amount}` };
   return {
     name: "ready",
@@ -733,7 +784,7 @@ function renderStations() {
     button.querySelector(".action-label").textContent = state.label;
     button.querySelector(".volume-value").textContent = state.volume;
     button.classList.toggle("has-pieces", Boolean(state.pieces));
-    for (const name of ["ready", "off", "source", "target", "blocked"])
+    for (const name of ["ready", "off", "source", "target", "swap", "blocked"])
       button.classList.toggle(`is-${name}`, state.name === name);
     button.classList.toggle("is-sorted", colors.size === 1);
     button.setAttribute(
@@ -750,9 +801,11 @@ function renderStations() {
           ? "picked up, activate again to cancel"
           : state.name === "target"
             ? `send ${state.volume.slice(1)} pieces here`
-            : state.name === "blocked"
-              ? "no room for this color"
-              : state.label.toLowerCase();
+            : state.name === "swap"
+              ? `swap next stacks (${state.volume} pieces)`
+              : state.name === "blocked"
+                ? "no room for this color"
+                : state.label.toLowerCase();
     button.setAttribute(
       "aria-label",
       `${bin.name}, ${pieces} pieces, ${colorSummary}. ${action}`,
@@ -763,6 +816,7 @@ function renderStations() {
     ]) {
       element.classList.toggle("is-source", state.name === "source");
       element.classList.toggle("is-target", state.name === "target");
+      element.classList.toggle("is-swap", state.name === "swap");
       element.classList.toggle("is-blocked", state.name === "blocked");
     }
   });
@@ -845,6 +899,9 @@ function chooseStation(binId) {
   const bin = bins[binId];
   if (selected === null) pickUp(bin);
   else if (selected === binId) cancelSelection();
+  else if (deliverableAmount(bins[selected], bin))
+    sendStack(bins[selected], bin);
+  else if (canSwap(bins[selected], bin)) swapStacks(bins[selected], bin);
   else sendStack(bins[selected], bin);
 }
 
@@ -856,17 +913,52 @@ function pickUp(bin) {
       bin,
       `DUMPSTER ${binNumber(bin)} IS STILL RECEIVING - WAIT FOR IT TO LAND`,
     );
-  if (trackRoom() <= 0)
-    return deny(bin, "TRACK FULL - WAIT FOR PIECES TO LAND");
+  const canSend =
+    trackRoom() > 0 && bins.some((target) => deliverableAmount(bin, target));
+  const canTrade = bins.some((target) => canSwap(bin, target));
+  if (!canSend && !canTrade) {
+    if (trackRoom() <= 0)
+      return deny(bin, "TRACK FULL - WAIT FOR PIECES TO LAND");
+    return deny(bin, `NO DUMPSTER HAS ROOM FOR ${colorById(stack.color).name}`);
+  }
   selected = bin.id;
   const colorName = colorById(stack.color).name;
-  const amount = Math.min(stack.amount, trackRoom());
-  yardStatusElement.textContent = bins.some((target) =>
-    deliverableAmount(bin, target),
-  )
-    ? `${amount} ${colorName} READY - TAP THE DUMPSTER TO SEND IT TO`
-    : `NO DUMPSTER HAS ROOM FOR ${colorName} - TAP ${binNumber(bin)} TO PUT IT BACK`;
+  const amount = canSend ? Math.min(stack.amount, trackRoom()) : stack.amount;
+  yardStatusElement.textContent = canSend
+    ? `${amount} ${colorName} READY - TAP WHERE TO SEND, OR SWAP`
+    : `NO ROOM TO SEND ${colorName} - TAP A DUMPSTER TO SWAP STACKS`;
   render();
+}
+
+function swapStacks(source, target) {
+  const sourceStack = nextStack(source);
+  const targetStack = nextStack(target);
+  const fromColor = sourceStack.color;
+  const toColor = targetStack.color;
+  const fromAmount = sourceStack.amount;
+  const toAmount = targetStack.amount;
+  // Exchange the front stacks in place — no track ride.
+  sourceStack.color = toColor;
+  sourceStack.amount = toAmount;
+  targetStack.color = fromColor;
+  targetStack.amount = fromAmount;
+  selected = null;
+  previewRoute(null);
+  sorted = countSorted();
+  yardStatusElement.textContent = `SWAPPED ${binNumber(source)} ${colorById(fromColor).name} ↔ ${binNumber(target)} ${colorById(toColor).name}`;
+  window.KG?.event("stacks_swapped", {
+    level,
+    station: source.id + 1,
+    target: target.id + 1,
+    fromColor,
+    toColor,
+  });
+  window.KG?.setStatus(
+    `Level ${level} · ${sorted}/${bins.length} sorted · ${riders.length} on track`,
+  );
+  render();
+  reportProgress(true);
+  if (sorted === bins.length && riders.length === 0) finishRace();
 }
 
 function sendStack(source, target) {

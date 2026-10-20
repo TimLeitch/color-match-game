@@ -234,7 +234,8 @@ h1 span {
   transition: stroke 130ms ease;
 }
 .chute.is-source,
-.chute.is-target {
+.chute.is-target,
+.chute.is-swap {
   stroke: #76a448;
   stroke-dasharray: none;
 }
@@ -312,7 +313,8 @@ h1 span {
   background: var(--accent);
   color: #14190f;
 }
-.track-marker.is-target {
+.track-marker.is-target,
+.track-marker.is-swap {
   border-color: #fffef9;
 }
 .track-marker.is-blocked {
@@ -373,12 +375,12 @@ h1 span {
     transform 130ms ease;
 }
 @media (hover: hover) {
-  .station:is(.is-ready, .is-target):hover {
+  .station:is(.is-ready, .is-target, .is-swap):hover {
     border-color: var(--accent);
     box-shadow: 0 6px 0 rgb(0 0 0 / 28%);
   }
 }
-.station:is(.is-ready, .is-target):active {
+.station:is(.is-ready, .is-target, .is-swap):active {
   border-color: var(--accent);
   box-shadow: 0 1px 0 rgb(0 0 0 / 28%);
 }
@@ -404,6 +406,10 @@ h1 span {
 .station.is-target {
   border-style: dashed;
   border-color: var(--accent);
+}
+.station.is-swap {
+  border-style: dashed;
+  border-color: #ef795d;
 }
 .station.is-blocked {
   cursor: not-allowed;
@@ -565,10 +571,12 @@ h1 span {
   border-radius: 6px;
   box-shadow: 0 2px 0 rgb(0 0 0 / 28%);
 }
-.yard:is([data-card="sm"], [data-card="xs"]) :is(.station-heading, .station-action) {
+.yard:is([data-card="sm"], [data-card="xs"])
+  :is(.station-heading, .station-action) {
   display: contents;
 }
-.yard:is([data-card="sm"], [data-card="xs"]) :is(.name-full, .station-count, .action-label) {
+.yard:is([data-card="sm"], [data-card="xs"])
+  :is(.name-full, .station-count, .action-label) {
   display: none;
 }
 .yard[data-card="xs"] .volume-unit {
@@ -591,10 +599,14 @@ h1 span {
     700 12px/16px "DM Mono",
     monospace;
 }
-.yard:is([data-card="sm"], [data-card="xs"]) .station.is-source .station-volume {
+.yard:is([data-card="sm"], [data-card="xs"])
+  .station.is-source
+  .station-volume {
   color: #fffef9;
 }
-.yard:is([data-card="sm"], [data-card="xs"]) .station:is(.is-off, .is-blocked) .station-volume {
+.yard:is([data-card="sm"], [data-card="xs"])
+  .station:is(.is-off, .is-blocked)
+  .station-volume {
   color: #9fb2a5;
 }
 .yard:is([data-card="sm"], [data-card="xs"]) .dumpster-section {
