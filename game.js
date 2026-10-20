@@ -155,23 +155,24 @@ function createLevelPlan() {
   const random = seededRandom(level * 982451653);
   const levelTrack = pickFromCycle(TRACKS, TRACKS.length, 1847);
   const [fewest, most] = levelTrack.dumpsters;
-  // Ceiling climbs slowly — full track capacity around level 21, not by level 9.
-  const reach = Math.min(1, (level - 1) / 20);
+  // Same plan on every device — soft climb so phone and desktop stay equally easy.
+  const reach = Math.min(1, (level - 1) / 36);
   const ceiling = fewest + Math.round((most - fewest) * reach);
   const dumpsterCount = fewest + Math.floor(random() * (ceiling - fewest + 1));
   // Prefer spare dumpsters as working space; tiny yards keep 2 colors and use empty sections instead.
   const spareBins = Math.max(1, Math.ceil(dumpsterCount / 3));
   let colorCount = Math.min(COLORS.length, dumpsterCount - spareBins);
   if (colorCount < 2) colorCount = Math.min(2, dumpsterCount);
+  // Cap colors so later levels never turn into hard rainbow puzzles.
+  colorCount = Math.min(colorCount, level < 12 ? 2 : 3);
   return {
     track: levelTrack,
     race: pickFromCycle(RACES, RACES.length, 7919),
     dumpsterCount,
-    // Fewer sections early on — less to untangle.
-    sectionsPerBin: level < 6 ? 3 : 3 + Math.floor(random() * 2),
+    sectionsPerBin: 3,
     colorCount,
-    // Light scramble early; still capped so yards stay solvable.
-    scrambleMoves: Math.min(3 + level * 2, dumpsterCount * 4, 24),
+    // Gentle scramble for every level — enough mix to play, not enough to brick the yard.
+    scrambleMoves: Math.min(4 + Math.floor((level - 1) / 4), 8),
     seed: Math.floor(random() * 0xffffffff),
   };
 }
@@ -342,9 +343,9 @@ function spreadDocks(docks, minGap) {
 
 // Pieces shrink so a full track's worth of them fits end to end as one solid line.
 function sizeRiders() {
-  const largest = compactQuery.matches ? 14 : 20;
+  const largest = 20;
   riderSize = Math.max(
-    7,
+    8,
     Math.min(largest, (trackTable.length / race.capacity) * 0.95),
   );
   yardElement.style.setProperty("--rider-size", `${riderSize}px`);
@@ -453,20 +454,13 @@ function ringLayout(count, width, height, card, rowsFirst) {
 }
 
 // Tries each card size from largest down and keeps whichever ring leaves the track the most room.
+// Phone and desktop use the same sizing rules so a yard feels the same on both.
 function chooseLayout(count, width, height) {
   const compact = compactQuery.matches;
   const spacing = compact
-    ? { gap: 4, margin: 4, pad: 14 }
+    ? { gap: 6, margin: 6, pad: 16 }
     : { gap: 8, margin: 8, pad: 20 };
-  const preferred = compact
-    ? 2
-    : count <= 6
-      ? 0
-      : count <= 12
-        ? 1
-        : count <= 20
-          ? 2
-          : 3;
+  const preferred = count <= 6 ? 0 : count <= 12 ? 1 : count <= 20 ? 2 : 3;
   const smallest = CARD_SIZES.length - 1;
   const firstButton = stationsElement.children[0];
   for (let step = preferred; step <= smallest + 4; step += 1) {

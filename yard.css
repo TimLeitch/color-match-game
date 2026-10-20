@@ -610,7 +610,7 @@ h1 span {
   color: #9fb2a5;
 }
 .yard:is([data-card="sm"], [data-card="xs"]) .dumpster-section {
-  height: 22px;
+  height: 26px;
   border-radius: 3px;
 }
 .yard:is([data-card="sm"], [data-card="xs"]) .section-amount {
