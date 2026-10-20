@@ -1,14 +1,14 @@
 const SECTION_CAPACITY = 50;
-// Eight hues spaced around the wheel — no light/dark twins of the same color.
+// Eight high-contrast hues — no orange/red twins and no teal/green twins.
 const COLORS = [
-  { id: "citrus", name: "CITRUS", hex: "#f0e12a", ink: "#1b2108" },
-  { id: "amber", name: "AMBER", hex: "#ff8a00", ink: "#2a1400" },
-  { id: "coral", name: "CORAL", hex: "#e53935", ink: "#ffffff" },
-  { id: "fuchsia", name: "FUCHSIA", hex: "#d946ef", ink: "#ffffff" },
-  { id: "plum", name: "PLUM", hex: "#7c3aed", ink: "#ffffff" },
-  { id: "blue", name: "BLUE", hex: "#2563eb", ink: "#ffffff" },
-  { id: "sky", name: "SKY", hex: "#06b6d4", ink: "#042f2e" },
-  { id: "mint", name: "MINT", hex: "#16a34a", ink: "#ffffff" },
+  { id: "citrus", name: "CITRUS", hex: "#ffeb3b", ink: "#1b2108" },
+  { id: "amber", name: "AMBER", hex: "#ff6d00", ink: "#ffffff" },
+  { id: "coral", name: "CORAL", hex: "#d50000", ink: "#ffffff" },
+  { id: "fuchsia", name: "FUCHSIA", hex: "#ff1f8f", ink: "#ffffff" },
+  { id: "plum", name: "PLUM", hex: "#6200ea", ink: "#ffffff" },
+  { id: "blue", name: "BLUE", hex: "#2962ff", ink: "#ffffff" },
+  { id: "sky", name: "SKY", hex: "#40c4ff", ink: "#062033" },
+  { id: "mint", name: "MINT", hex: "#00c853", ink: "#04150e" },
 ];
 // Discrete yard sizes shared by every track; each map caps how high it can go (max 20).
 const DUMPSTER_OPTIONS = [4, 6, 8, 10, 12, 16, 20];
