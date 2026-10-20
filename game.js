@@ -9,30 +9,31 @@ const COLORS = [
   { id: "rose", name: "ROSE", hex: "#e05780", ink: "#ffffff" },
   { id: "mint", name: "MINT", hex: "#2a9d6e", ink: "#04150e" },
 ];
-// Each map sets how many dumpsters it can host; early levels stay at the low end of the range.
+// Discrete yard sizes shared by every track; each map caps how high it can go (max 20).
+const DUMPSTER_OPTIONS = [4, 6, 8, 10, 12, 16, 20];
 const TRACKS = [
   {
     id: "oval",
     name: "OVAL",
-    dumpsters: [2, 6],
+    dumpsters: [4, 12],
     path: "M50 6 C76 6 94 23 94 50 C94 77 76 94 50 94 C24 94 6 77 6 50 C6 23 24 6 50 6 Z",
   },
   {
     id: "round-square",
     name: "ROUND SQUARE",
-    dumpsters: [3, 10],
+    dumpsters: [4, 20],
     path: "M29 6 H71 Q94 6 94 29 V71 Q94 94 71 94 H29 Q6 94 6 71 V29 Q6 6 29 6 Z",
   },
   {
     id: "diamond",
     name: "DIAMOND",
-    dumpsters: [3, 8],
+    dumpsters: [4, 16],
     path: "M50 5 C60 14 88 40 95 50 C86 60 60 87 50 95 C40 86 13 60 5 50 C14 40 40 13 50 5 Z",
   },
   {
     id: "figure-eight",
     name: "FIGURE EIGHT",
-    dumpsters: [3, 7],
+    dumpsters: [4, 12],
     path: "M50 50 C14 28 20 5 50 5 C80 5 86 28 50 50 C14 72 20 95 50 95 C80 95 86 72 50 50 Z",
   },
 ];
@@ -155,24 +156,31 @@ function createLevelPlan() {
   const random = seededRandom(level * 982451653);
   const levelTrack = pickFromCycle(TRACKS, TRACKS.length, 1847);
   const [fewest, most] = levelTrack.dumpsters;
-  // Same plan on every device — soft climb so phone and desktop stay equally easy.
-  const reach = Math.min(1, (level - 1) / 36);
-  const ceiling = fewest + Math.round((most - fewest) * reach);
-  const dumpsterCount = fewest + Math.floor(random() * (ceiling - fewest + 1));
-  // Prefer spare dumpsters as working space; tiny yards keep 2 colors and use empty sections instead.
-  const spareBins = Math.max(1, Math.ceil(dumpsterCount / 3));
-  let colorCount = Math.min(COLORS.length, dumpsterCount - spareBins);
-  if (colorCount < 2) colorCount = Math.min(2, dumpsterCount);
-  // Cap colors so later levels never turn into hard rainbow puzzles.
-  colorCount = Math.min(colorCount, level < 12 ? 2 : 3);
+  // Pick a discrete yard size (4 / 6 / 8 / … / 20); early levels stay toward the low end.
+  const options = DUMPSTER_OPTIONS.filter(
+    (count) => count >= fewest && count <= most,
+  );
+  const reach = Math.min(1, (level - 1) / 28);
+  const unlocked = Math.max(1, Math.round(1 + (options.length - 1) * reach));
+  const dumpsterCount =
+    options[Math.floor(random() * unlocked)] ?? options[0] ?? 4;
+  // At least 4 colors; climb toward 8 only when the yard has room for spare dumpsters.
+  const spareBins = Math.max(1, Math.ceil(dumpsterCount / 5));
+  const maxColors = Math.min(COLORS.length, 8, dumpsterCount);
+  const minColors = Math.min(4, maxColors);
+  const colorCeiling = Math.min(
+    maxColors,
+    Math.max(minColors, dumpsterCount - spareBins),
+  );
+  const colorCount =
+    minColors + Math.floor(random() * (colorCeiling - minColors + 1));
   return {
     track: levelTrack,
     race: pickFromCycle(RACES, RACES.length, 7919),
     dumpsterCount,
     sectionsPerBin: 3,
     colorCount,
-    // Gentle scramble for every level — enough mix to play, not enough to brick the yard.
-    scrambleMoves: Math.min(4 + Math.floor((level - 1) / 4), 8),
+    scrambleMoves: Math.min(5 + Math.floor(colorCount / 2), 12),
     seed: Math.floor(random() * 0xffffffff),
   };
 }
@@ -454,19 +462,32 @@ function ringLayout(count, width, height, card, rowsFirst) {
 }
 
 // Tries each card size from largest down and keeps whichever ring leaves the track the most room.
-// Phone and desktop use the same sizing rules so a yard feels the same on both.
+// On phones, prefer smaller cards so dumpsters sit outside a visible track instead of covering it.
 function chooseLayout(count, width, height) {
   const compact = compactQuery.matches;
   const spacing = compact
-    ? { gap: 6, margin: 6, pad: 16 }
+    ? { gap: 3, margin: 3, pad: 10 }
     : { gap: 8, margin: 8, pad: 20 };
-  const preferred = count <= 6 ? 0 : count <= 12 ? 1 : count <= 20 ? 2 : 3;
   const smallest = CARD_SIZES.length - 1;
+  // Desktop starts roomy; phones start at sm and keep shrinking until the track has room.
+  const preferred = compact
+    ? 2
+    : count <= 6
+      ? 0
+      : count <= 12
+        ? 1
+        : count <= 20
+          ? 2
+          : 3;
   const firstButton = stationsElement.children[0];
-  for (let step = preferred; step <= smallest + 4; step += 1) {
+  const yardArea = width * height;
+  const trackGoal = compact ? yardArea * 0.32 : 0;
+  let best = null;
+  for (let step = preferred; step <= smallest + (compact ? 8 : 4); step += 1) {
     const size = CARD_SIZES[Math.min(step, smallest)];
     // Past the smallest size, keep narrowing it until everything fits.
     const cardW = size.width * 0.9 ** Math.max(0, step - smallest);
+    if (compact && cardW < 56) break;
     yardElement.dataset.card = size.name;
     yardElement.style.setProperty("--station-width", `${cardW}px`);
     const card = { ...spacing, width: cardW, height: firstButton.offsetHeight };
@@ -474,7 +495,21 @@ function chooseLayout(count, width, height) {
       .map((rowsFirst) => ringLayout(count, width, height, card, rowsFirst))
       .filter(Boolean)
       .sort((a, b) => b.trackArea - a.trackArea);
-    if (options.length) return options[0];
+    if (!options.length) continue;
+    const layout = options[0];
+    if (!compact) return layout;
+    if (!best || layout.trackArea > best.layout.trackArea)
+      best = { layout, sizeName: size.name, cardW };
+    if (layout.trackArea >= trackGoal) {
+      yardElement.dataset.card = size.name;
+      yardElement.style.setProperty("--station-width", `${cardW}px`);
+      return layout;
+    }
+  }
+  if (best) {
+    yardElement.dataset.card = best.sizeName;
+    yardElement.style.setProperty("--station-width", `${best.cardW}px`);
+    return best.layout;
   }
   // A yard this small can't fit every card, so space them as if they were smaller and let neighbours overlap.
   const card = {

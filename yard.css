@@ -846,6 +846,25 @@ h1 span {
     flex: 1;
     height: auto;
   }
+  /* Keep dumpsters compact on phones so the ring sits outside a readable track. */
+  .yard .station {
+    max-width: 118px;
+  }
+  .yard[data-card="lg"] .station,
+  .yard[data-card="md"] .station {
+    padding: 4px 5px;
+    gap: 4px;
+  }
+  .yard[data-card="lg"] .dumpster-section,
+  .yard[data-card="md"] .dumpster-section {
+    height: 22px;
+  }
+  .yard:is([data-card="sm"], [data-card="xs"]) .dumpster-section {
+    height: 20px;
+  }
+  .yard:is([data-card="sm"], [data-card="xs"]) .section-amount {
+    font-size: 10px;
+  }
   .track-shadow {
     stroke-width: 24px;
   }
@@ -853,9 +872,9 @@ h1 span {
     stroke-width: 20px;
   }
   .track-marker {
-    width: 20px;
-    height: 20px;
-    font-size: 11px;
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
