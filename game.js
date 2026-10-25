@@ -116,6 +116,11 @@ let sorted = 0;
 let score = 0;
 let streak = 0;
 let bestStreak = 0;
+// On Kaotic Gaming the player's records live in their account: each session starts at level 1,
+// but the scoreboard keeps the highest level reached and the longest streak ever.
+const savedRecords = (window.KG && window.KG.initialSave) || {};
+let recordLevel = Math.max(1, Number(savedRecords.bestLevel) || 0);
+let recordStreak = Number(savedRecords.bestStreak) || 0;
 let lastFrame = 0;
 let finished = false;
 // The dumpster whose next stack is picked up and waiting for a destination.
@@ -1075,18 +1080,25 @@ function dockRider(rider) {
     : `${streak} matching ${streak === 1 ? "piece" : "pieces"} in a row.`;
 }
 
-// Session-only play: nothing is written to disk or an account.
+// Play itself is session-only; on Kaotic Gaming the records (best level, longest streak) are kept.
 function reportProgress(force = false) {
   const now = performance.now();
   if (!force && now - lastReportedAt < 350) return;
   lastReportedAt = now;
-  saveIndicatorElement.textContent = "SESSION ONLY";
+  if (window.KG && (level > recordLevel || bestStreak > recordStreak)) {
+    recordLevel = Math.max(recordLevel, level);
+    recordStreak = Math.max(recordStreak, bestStreak);
+    window.KG.save({ bestLevel: recordLevel, bestStreak: recordStreak });
+  }
+  saveIndicatorElement.textContent = window.KG ? "BEST SAVED" : "SESSION ONLY";
   saveIndicatorElement.classList.remove("is-error", "is-saved");
   window.KG?.report({
-    level,
+    // the scoreboard ranks "level" and "bestStreak": the player's records, not this session
+    level: window.KG ? recordLevel : level,
+    bestStreak: window.KG ? recordStreak : bestStreak,
+    currentLevel: level,
     score,
     sorted,
-    bestStreak,
     onTrack: riders.length,
     race: race.name,
     dumpsters: bins.length,
