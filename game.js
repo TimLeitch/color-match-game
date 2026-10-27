@@ -94,6 +94,7 @@ const yardStatusElement = document.querySelector("#yard-status");
 const gameMessageElement = document.querySelector("#game-message");
 const saveIndicatorElement = document.querySelector("#save-indicator");
 const resetButton = document.querySelector("#reset-button");
+const startOverButton = document.querySelector("#start-over-button");
 // These mirror the CSS media queries: landscape phones get the compact layout, portrait phones get the rotate prompt.
 const compactQuery = window.matchMedia(
   "(orientation: landscape) and (max-height: 520px)",
@@ -103,7 +104,9 @@ const portraitQuery = window.matchMedia(
 );
 const isPaused = () => portraitQuery.matches;
 
-let level = 1;
+// unlocked is the furthest level reached; it only ever goes up.
+let unlocked = readUnlockedLevel();
+let level = readStartLevel();
 let plan;
 let track;
 let race;
@@ -115,7 +118,7 @@ let trackLength = 0;
 let sorted = 0;
 let score = 0;
 let streak = 0;
-let bestStreak = 0;
+let bestStreak = readBestStreak();
 let lastFrame = 0;
 let finished = false;
 // The dumpster whose next stack is picked up and waiting for a destination.
@@ -126,6 +129,49 @@ let trackTable = { points: [], length: 1 };
 let riderSize = 16;
 let pendingSorted = null;
 let lastSortedEventAt = 0;
+let booted = false;
+
+function readLocal(key) {
+  try {
+    return Number(localStorage.getItem(key)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Progress lives in this browser (no login needed). When hosted, the account save is checked too
+// and the furthest progress wins, so a missing or late save can't send a player back to level 1.
+function readUnlockedLevel(hostedSave = window.KG?.initialSave) {
+  return Math.max(
+    1,
+    Number(hostedSave?.unlocked) || 0,
+    Number(hostedSave?.level) || 0,
+    readLocal("color-magic-unlocked"),
+    readLocal("color-magic-level"),
+  );
+}
+
+function readStartLevel() {
+  const fromUrl = Math.floor(Number(new URLSearchParams(location.search).get("level")));
+  if (fromUrl >= 1) return fromUrl;
+  const current = Number(window.KG?.initialSave?.level) || readLocal("color-magic-level");
+  return Math.min(unlocked, Math.max(1, current || unlocked));
+}
+
+function readBestStreak(hostedSave = window.KG?.initialSave) {
+  return Math.max(Number(hostedSave?.bestStreak) || 0, readLocal("color-magic-best-streak"));
+}
+
+function saveProgress(savedLevel = level) {
+  unlocked = Math.max(unlocked, savedLevel);
+  const data = { level: savedLevel, unlocked, bestStreak };
+  try {
+    localStorage.setItem("color-magic-level", String(savedLevel));
+    localStorage.setItem("color-magic-unlocked", String(unlocked));
+    localStorage.setItem("color-magic-best-streak", String(bestStreak));
+  } catch {}
+  window.KG?.save?.(data);
+}
 
 function seededRandom(seed) {
   let state = seed >>> 0;
@@ -716,6 +762,7 @@ function newLevel(nextLevel = false) {
   clearTimeout(advanceId);
   flushSorted();
   if (nextLevel) level += 1;
+  if (booted) saveProgress();
   plan = createLevelPlan();
   track = plan.track;
   race = plan.race;
@@ -1056,7 +1103,10 @@ function dockRider(rider) {
   if (rider.matched) {
     streak += 1;
     score += 15 + Math.min(streak, 10);
-    if (streak > bestStreak) bestStreak = streak;
+    if (streak > bestStreak) {
+      bestStreak = streak;
+      saveProgress();
+    }
   } else {
     streak = 0;
     score += 5;
@@ -1075,12 +1125,11 @@ function dockRider(rider) {
     : `${streak} matching ${streak === 1 ? "piece" : "pieces"} in a row.`;
 }
 
-// Session-only play: nothing is written to disk or an account.
 function reportProgress(force = false) {
   const now = performance.now();
   if (!force && now - lastReportedAt < 350) return;
   lastReportedAt = now;
-  saveIndicatorElement.textContent = "SESSION ONLY";
+  saveIndicatorElement.textContent = window.KG ? "ACCOUNT SAVE" : "SAVED";
   saveIndicatorElement.classList.remove("is-error", "is-saved");
   window.KG?.report({
     level,
@@ -1108,6 +1157,8 @@ function finishRace() {
     score,
     sorted,
   });
+  // Save the next level right away so a refresh during the win banner doesn't lose it.
+  saveProgress(level + 1);
   advanceId = window.setTimeout(() => newLevel(true), 2200);
   render();
   reportProgress();
@@ -1187,6 +1238,10 @@ const relayout = () =>
     renderRiders();
   });
 resetButton.addEventListener("click", () => newLevel(false));
+startOverButton.addEventListener("click", () => {
+  level = 1;
+  newLevel(false);
+});
 // Tapping the open yard or pressing Escape puts a picked-up stack back.
 yardElement.addEventListener("click", (event) => {
   if (!event.target.closest(".station")) cancelSelection();
@@ -1198,4 +1253,5 @@ window.addEventListener("resize", relayout);
 compactQuery.addEventListener("change", relayout);
 window.KG?.setStatus(`Level ${level} · ${track?.name || "starting"}`);
 newLevel(false);
+booted = true;
 requestAnimationFrame(animate);

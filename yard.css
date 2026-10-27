@@ -887,3 +887,28 @@ h1 span {
     transition-duration: 0.01ms !important;
   }
 }
+
+.save-tools {
+  display: flex;
+  flex: none;
+  white-space: nowrap;
+  align-items: center;
+  gap: 14px;
+}
+.start-over-button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-soft);
+  font:
+    500 11px "DM Mono",
+    monospace;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+}
+.start-over-button:hover,
+.start-over-button:focus-visible {
+  border-color: var(--ink);
+  color: var(--ink);
+}

@@ -18,7 +18,7 @@
     />
     <script>
       // Bump ASSET_V whenever game.js / yard.css change so Pages/browsers pick up the latest build.
-      const ASSET_V = "20261019-6";
+      const ASSET_V = "20261027-1";
       const assetRoot = window.KG_BOOT ? `/play/${window.KG_BOOT.game}/` : "./";
       document.write(
         `<link rel="stylesheet" href="${assetRoot}yard.css?v=${ASSET_V}">`,
@@ -139,7 +139,11 @@
           </div>
           <div class="game-footer">
             <p id="game-message">Sort every dumpster down to one color.</p>
-            <span class="save-indicator" id="save-indicator">SESSION ONLY</span>
+            <span class="save-tools"
+              ><button class="start-over-button" id="start-over-button" type="button">
+                START OVER</button
+              ><span class="save-indicator" id="save-indicator">SAVED</span></span
+            >
           </div>
         </div>
         <footer class="bottom-note">

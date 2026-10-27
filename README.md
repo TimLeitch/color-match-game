@@ -6,7 +6,7 @@ A dumpster-and-conveyor color sorter for Kaotic Gaming. Tap a dumpster to pick u
 
 **[Play Color Magic](https://timleitch.github.io/color-match-game/)** — open in the browser, no account, no install.
 
-Progress is session-only. Refresh and you're back at level 1. This same build will later ship on [Kaotic Gaming](https://kaotic.strictgaming.com); until then, GitHub Pages is the public demo.
+Progress is saved in your browser, so you pick up at the level you reached (no account needed). **Start over** under the yard resets it. When hosted on Kaotic Gaming, the account save is used too, and whichever is further along wins. This same build will later ship on [Kaotic Gaming](https://kaotic.strictgaming.com); until then, GitHub Pages is the public demo.
 
 You can also open `index.html` locally or serve this folder with any static file server. No build step or dependencies are required.
 
